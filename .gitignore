@@ -1,0 +1,6 @@
+/lib/
+/.shards/
+/tmp/
+*.dwarf
+/active_record_cr
+/bin/

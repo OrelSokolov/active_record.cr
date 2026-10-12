@@ -1,0 +1,11 @@
+name: active_record_cr
+version: 0.1.0
+crystal: ">= 1.21.0"
+dependencies:
+  active_support_cr:
+    path: ../active_support.cr
+  pg:
+    github: will/crystal-pg
+targets:
+  ar_schema_dump:
+    main: src/schema_dump_cli.cr

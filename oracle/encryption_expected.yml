@@ -1,0 +1,27 @@
+enc_primary_derived_hex	113435e2480d98e935d06821886269a8e245e1bc693fd315dfacb8bcf48bee9f
+enc_det_key_hex	11921a8c93ba170279919ecd32140467e5c7c76f07b90c236ab75ed61004ea94
+enc_det_exact	"{\"p\":\"pk0msuqe0JwL9kk=\",\"h\":{\"iv\":\"315EMfeth4UeRsyx\",\"at\":\"1EdJLUzyGAh0iUH7/qwJYg==\"}}"
+enc_det_stable	true
+enc_det_decrypt	"some secret"
+enc_det_iv_derived	true
+enc_nondet_different	true
+enc_nondet_roundtrip	"some secret"
+enc_json_keys	["h", "p"]
+enc_json_header_keys	["at", "iv"]
+enc_json_no_compressed_short	false
+enc_compress_flag	true
+enc_compress_roundtrip	"A pretty long text that goes over the compression threshold of one hundred and forty bytes, for sure. A pretty long text that goes over the compression threshold of one hundred and forty bytes, for sure. A pretty long text that goes over the compression threshold of one hundred and forty bytes, for sure. "
+enc_empty_roundtrip	""
+enc_utf8_roundtrip	"пароль-密码"
+enc_type_serialize	"{\"p\":\"pk0msuqe0JwL9kk=\",\"h\":{\"iv\":\"315EMfeth4UeRsyx\",\"at\":\"1EdJLUzyGAh0iUH7/qwJYg==\"}}"
+enc_type_deserialize	"some secret"
+enc_type_nil	nil
+enc_type_unencrypted_ok	"plain text"
+enc_type_downcase	true
+enc_type_downcase_value	"abc"
+enc_wrong_key_class	ActiveRecord::Encryption::Errors::Decryption
+enc_garbage_class	ActiveRecord::Encryption::Errors::Decryption
+enc_unencrypted_class	ActiveRecord::Encryption::Errors::Decryption
+enc_encrypted_yes	true
+enc_encrypted_no	false
+enc_det_long_exact	"{\"p\":\"NyaObR5giCD4sF/bqjmmNBaOTnMQj3nzVu7XSFD4u0ufohOEzPlAp0Bf8LlFZtGqKEo4i8DIzVVwmBFLWymSBI8Y4hfcDflsaBbjtZYt8AxtFfqfO7h03ij4ahU7uQ==\",\"h\":{\"iv\":\"NWEfP3hHRPRBkBw9\",\"at\":\"5JEOaGH04fkrX+e1pyMBZw==\",\"c\":true}}"

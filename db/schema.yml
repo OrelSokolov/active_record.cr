@@ -1,0 +1,934 @@
+---
+academies:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('academies_id_seq'::regclass)
+  - name: external_id
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: juni_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: name
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: first_name
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: last_name
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: email
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: lang
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: avatar
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: address
+    type: jsonb
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+active_admin_comments:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('active_admin_comments_id_seq'::regclass)
+  - name: namespace
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: body
+    type: text
+    nullable: 'YES'
+    default:
+  - name: resource_type
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: resource_id
+    type: int8
+    nullable: 'YES'
+    default:
+  - name: author_type
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: author_id
+    type: int8
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+admin_users:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('admin_users_id_seq'::regclass)
+  - name: email
+    type: varchar
+    nullable: 'NO'
+    default: "''::character varying"
+  - name: encrypted_password
+    type: varchar
+    nullable: 'NO'
+    default: "''::character varying"
+  - name: reset_password_token
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: reset_password_sent_at
+    type: timestamp
+    nullable: 'YES'
+    default:
+  - name: remember_created_at
+    type: timestamp
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+ar_internal_metadata:
+  columns:
+  - name: key
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: value
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+coaches:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('coaches_id_seq'::regclass)
+  - name: external_id
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: juni_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: first_name
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: last_name
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: email
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: lang
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: avatar
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: academy_external_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: academy_id
+    type: int8
+    nullable: 'YES'
+    default:
+  - name: team_external_ids
+    type: jsonb
+    nullable: 'YES'
+    default: "'[]'::jsonb"
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+csp_configs:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('csp_configs_id_seq'::regclass)
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+csp_partners_configs:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('csp_partners_configs_id_seq'::regclass)
+  - name: key
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: value
+    type: jsonb
+    nullable: 'YES'
+    default: "'{}'::jsonb"
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+download_partners:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('download_partners_id_seq'::regclass)
+  - name: partner_id
+    type: int4
+    nullable: 'NO'
+    default:
+  - name: name
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: active
+    type: bool
+    nullable: 'NO'
+    default: 'true'
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+junistat_configs:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('junistat_configs_id_seq'::regclass)
+  - name: key
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: value
+    type: text
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+player_injuries:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('player_injuries_id_seq'::regclass)
+  - name: season
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: injury
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: from
+    type: date
+    nullable: 'YES'
+    default:
+  - name: until
+    type: date
+    nullable: 'YES'
+    default:
+  - name: days_missed
+    type: int4
+    nullable: 'YES'
+    default:
+  - name: games_missed
+    type: int4
+    nullable: 'YES'
+    default:
+  - name: player_id
+    type: int4
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+players:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('players_id_seq'::regclass)
+  - name: external_id
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: juni_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: first_name
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: last_name
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: email
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: gender
+    type: varchar
+    nullable: 'YES'
+    default: "'male'::character varying"
+  - name: birthday
+    type: timestamp
+    nullable: 'YES'
+    default:
+  - name: lang
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: avatar
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: academy_external_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: academy_id
+    type: int8
+    nullable: 'YES'
+    default:
+  - name: coach_external_ids
+    type: jsonb
+    nullable: 'YES'
+    default: "'[]'::jsonb"
+  - name: team_external_ids
+    type: jsonb
+    nullable: 'YES'
+    default: "'[]'::jsonb"
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+priority_matches:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('priority_matches_id_seq'::regclass)
+  - name: match_id
+    type: int4
+    nullable: 'NO'
+    default:
+  - name: filter_type
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+result_tags:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('result_tags_id_seq'::regclass)
+  - name: tag
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: name
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+schema_migrations:
+  columns:
+  - name: version
+    type: varchar
+    nullable: 'NO'
+    default:
+sidekiq_pipeline_nodes:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('sidekiq_pipeline_nodes_id_seq'::regclass)
+  - name: sidekiq_pipeline_id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: node_name
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: status
+    type: int4
+    nullable: 'NO'
+    default: '0'
+  - name: run_at
+    type: timestamp
+    nullable: 'YES'
+    default:
+  - name: error_message
+    type: text
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: bid
+    type: varchar
+    nullable: 'YES'
+    default:
+sidekiq_pipelines:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('sidekiq_pipelines_id_seq'::regclass)
+  - name: pipeline_name
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: status
+    type: int4
+    nullable: 'YES'
+    default: '0'
+  - name: run_at
+    type: timestamp
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+teams:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('teams_id_seq'::regclass)
+  - name: external_id
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: juni_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: name
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: academy_external_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: academy_id
+    type: int8
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+test_result_items:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('test_result_items_id_seq'::regclass)
+  - name: test_result_id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: result_tag
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: value
+    type: numeric
+    nullable: 'NO'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+test_results:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('test_results_id_seq'::regclass)
+  - name: juni_id
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: test_tag
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: player_external_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: player_juni_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: player_id
+    type: int8
+    nullable: 'YES'
+    default:
+  - name: coach_external_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: coach_juni_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: coach_id
+    type: int8
+    nullable: 'YES'
+    default:
+  - name: academy_external_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: academy_juni_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: academy_id
+    type: int8
+    nullable: 'YES'
+    default:
+  - name: environment
+    type: jsonb
+    nullable: 'YES'
+    default:
+  - name: created_at_juni
+    type: timestamp
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+test_tags:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('test_tags_id_seq'::regclass)
+  - name: tag
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: title
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+comments:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('comments_id_seq'::regclass)
+  - name: post_id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: author
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: body
+    type: text
+    nullable: 'NO'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+secret_notes:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('secret_notes_id_seq'::regclass)
+  - name: title
+    type: text
+    nullable: 'YES'
+    default:
+  - name: content
+    type: text
+    nullable: 'YES'
+    default:
+  - name: code
+    type: text
+    nullable: 'YES'
+    default:
+
+posts:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('posts_id_seq'::regclass)
+  - name: title
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: body
+    type: text
+    nullable: 'YES'
+    default:
+  - name: views
+    type: int8
+    nullable: 'NO'
+    default: '0'
+  - name: score
+    type: float8
+    nullable: 'YES'
+    default:
+  - name: rating
+    type: numeric
+    nullable: 'YES'
+    default:
+  - name: published
+    type: bool
+    nullable: 'NO'
+    default: 'false'
+  - name: published_at
+    type: timestamptz
+    nullable: 'YES'
+    default:
+  - name: tags
+    type: jsonb
+    nullable: 'YES'
+    default: "'[]'::jsonb"
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: author_id
+    type: int8
+    nullable: 'YES'
+    default:
+  - name: comments_count
+    type: int4
+    nullable: 'NO'
+    default: '0'
+authors:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('authors_id_seq'::regclass)
+  - name: name
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: email
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: bio
+    type: text
+    nullable: 'YES'
+    default:
+  - name: age
+    type: int4
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+profiles:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('profiles_id_seq'::regclass)
+  - name: author_id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: nickname
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'NO'
+    default:
+widgets:
+  columns:
+  - name: uid
+    type: int8
+    nullable: 'NO'
+    default: nextval('widgets_uid_seq'::regclass)
+  - name: name
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: stock
+    type: int4
+    nullable: 'YES'
+    default: '3'
+tags:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('tags_id_seq'::regclass)
+  - name: name
+    type: varchar
+    nullable: 'NO'
+    default:
+articles:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('articles_id_seq'::regclass)
+  - name: title
+    type: varchar
+    nullable: 'NO'
+    default:
+articles_tags:
+  columns:
+  - name: article_id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: tag_id
+    type: int8
+    nullable: 'NO'
+    default:
+pictures:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('pictures_id_seq'::regclass)
+  - name: imageable_type
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: imageable_id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: caption
+    type: varchar
+    nullable: 'YES'
+    default:
+gadgets:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('gadgets_id_seq'::regclass)
+  - name: name
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: lock_version
+    type: int4
+    nullable: 'NO'
+    default: '0'
+vehicles:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('vehicles_id_seq'::regclass)
+  - name: type
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: name
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: wheels
+    type: int4
+    nullable: 'YES'
+    default:
+badges:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('badges_id_seq'::regclass)
+  - name: name
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: status
+    type: int4
+    nullable: 'YES'
+    default:
+  - name: settings
+    type: jsonb
+    nullable: 'YES'
+    default:
+  - name: token
+    type: varchar
+    nullable: 'YES'
+    default:
+prefs:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default: nextval('prefs_id_seq'::regclass)
+  - name: name
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: settings
+    type: text
+    nullable: 'YES'
+    default:
+  - name: tags
+    type: text
+    nullable: 'YES'
+    default:

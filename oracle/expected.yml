@@ -1,0 +1,232 @@
+crud_new_record	true
+crud_new_changed	true
+crud_save	"true 3 true false \"spaced\" false false"
+crud_save_bang	true
+crud_save_invalid	"false nil false A[\"Title can't be blank\"]"
+crud_save_bang_invalid	raise:ActiveRecord::RecordInvalid
+crud_create	R:Post:body=nil id=5 published=false title="created" views=7
+crud_create_bang	6
+crud_create_invalid	"false true A[\"Title can't be blank\"]"
+crud_create_bang_invalid	raise:ActiveRecord::RecordInvalid
+crud_update_inst	"true \"upd\" \"upd\" 9"
+crud_update_invalid	"false \"upd\""
+crud_update_bang	"updbang"
+crud_update_class	1
+crud_update_class_bang	12
+crud_update_columns	"42 false"
+crud_update_class_missing	raise:ActiveRecord::RecordNotFound
+crud_touch	"true \"later\""
+crud_reload	88
+crud_destroy	"true false [\"after_destroy\"]"
+crud_destroy_class	"true false"
+crud_delete_class	"1 false"
+crud_destroy_missing	raise:ActiveRecord::RecordNotFound
+crud_destroy_frozen	true
+crud_destroy_returns_self_attrs	"11 \"gone\""
+ts_on_create	"true true"
+ts_on_update	"true false"
+dirty_loaded_clean	false
+dirty_attr_changed	true
+dirty_attr_was	"updbang"
+dirty_changes	H{"views"=>A[88,99]}
+dirty_changed_list	A["views"]
+dirty_same_value	false
+dirty_will_save	true
+dirty_after_save	"false H{\"updated_at\"=>A[T,T],\"views\"=>A[88,123]} true"
+dirty_new_record_changes	H{"title"=>A[nil,"n"],"views"=>A[0,1]}
+cb_save_order	A["before_validation","before_save","after_create"]
+cb_update_order	A["before_validation","before_save","after_update"]
+cb_destroy_order	A["after_destroy"]
+cb_cancel_chain	"false false"
+val_valid	true
+val_presence	"false A[\"Name can't be blank\"]"
+val_length	"false A[\"Bio is too long (maximum is 10 characters)\"]"
+val_numericality	"false A[\"Age must be greater than 0\"]"
+val_numericality_not_int	"skipped"
+val_format	"false A[\"Email is invalid\"]"
+val_uniqueness	"false A[\"Email has already been taken\"]"
+val_custom_block	"false A[\"Name is forbidden\"]"
+val_details	A[:blank]
+val_save_false	"false nil false"
+val_update_false	"false \"Ok\""
+val_multiple_errors	A["Name can't be blank","Age must be greater than 0","Bio is too long (maximum is 10 characters)"]
+assoc_has_many_count	2
+assoc_has_many_order	A["c1","c2"]
+assoc_ids	A[1,2]
+assoc_empty	true
+assoc_belongs_to	"updbang"
+assoc_belongs_to_id	1
+assoc_build	"true 2 2"
+assoc_create	"true 2 1"
+assoc_create_invalid	"false A[\"Body can't be blank\"]"
+assoc_shovel	"true 3"
+assoc_build_belongs	"true \"viapost\" nil"
+assoc_create_belongs	"false 16 \"viapost2\""
+assoc_dependent_destroy	"false 0"
+assoc_has_one	"nil true"
+assoc_has_one_create	"true \"p2\" 4"
+assoc_has_one_build	"true 5 1"
+assoc_has_one_replace	raise:ActiveRecord::RecordNotUnique
+assoc_has_one_dependent	"0"
+assoc_belongs_to_required	"true A[]"
+misc_exists	true
+misc_count	10
+misc_first_or_create	"false  \"first_or_create\""
+misc_first_or_create_twice	true
+misc_find_or_create_by	"true 1"
+misc_insert_all	"2"
+misc_upsert	2
+tx_return_value	42
+tx_commit_create	"true true"
+tx_rollback_raise	"boom true"
+tx_rollback_marker	"nil true"
+tx_joined_nested	"99 false"
+tx_requires_new	"committed true true"
+tx_requires_new_exception	"inner true"
+tx_after_commit_log	"[\"after_commit\"]"
+tx_after_rollback_log	"[\"after_rollback\"]"
+tx_after_rollback_requires_new	"[\"after_rollback\", \"after_commit\"]"
+tx_after_commit_no_tx	"[\"after_commit\"]"
+tx_after_commit_update_destroy	"[\"after_commit\", \"after_commit\"]"
+tx_isolation	7
+tx_with_lock	5
+tx_lock_bang	"true \"txlb\""
+scope_basic	1
+scope_chain	A["second"]
+scope_arg	6
+scope_ds	1
+scope_ds_unscoped	23
+scope_ds_where	0
+agg_sum	81
+agg_minimum	0
+agg_maximum	55
+agg_average	"3.52"
+rel_or	1
+rel_or_kwargs	A[2]
+rel_group_count	H{false=>22,true=>1}
+rel_having	H{}
+rel_distinct_pluck	A[false,true]
+rel_joins_count	4
+rel_joins_pluck	A["updbang","second"]
+rel_left_joins	21
+rel_reorder	A[1,2,3]
+rel_in_order_of	A[3,1,2]
+rel_update_all	"1 [777]"
+rel_touch_all	true
+rel_destroy_all	"2 0"
+rel_delete_all	"1 0"
+rel_find_in_batches	A[A[41,42],A[43,44],A[45]]
+rel_in_batches	A[2,2,1]
+rel_none	"0 0"
+rel_except	true
+rel_only	true
+rel_merge	1
+rel_annotate	true
+val2_inclusion_bad	"false A[\"Name is not included in the list\"]"
+val2_inclusion_blank	true
+val2_inclusion_ok	true
+val2_exclusion	"false A[\"Bio is reserved\"]"
+val2_comparison_lt	"false A[\"Age must be greater than or equal to 18\"]"
+val2_comparison_ok	true
+val2_confirmation_bad	"false A[\"Email confirmation doesn't match Email\"]"
+val2_confirmation_ok	true
+val2_acceptance_false	"true A[]"
+val2_acceptance_true	true
+val2_if_skipped	true
+val2_if_applied	"false A[\"Bio is too long (maximum is 5 characters)\"]"
+val2_on_create_ok	true
+val2_on_create_missing	"false A[\"Bio can't be blank\"]"
+val2_on_update_ctx	"false A[\"Name can't be blank\"]"
+val2_uniqueness_scope	"false true"
+val2_details	H{:name=>A[H{:error=>:inclusion,:value=>"Zoe"}]}
+val2_where_typed	"1 0"
+val2_group_by	A[:bio,:name]
+val2_strict	"raise:StrictValidationFailed"
+cb2_create_order	A["init","as1","bs","ac1","ac2","fc","as2","fs"]
+cb2_after_find	A["find","init"]
+cb2_update_order	A["as1","bs","au1","au2","fu","as2","fs"]
+cb2_destroy_order	A["ad1","bd","ad2","fd"]
+cb2_touch	A["touch"]
+p3_reload	"9 false"
+p3_update_attribute	"false ua2"
+p3_update_attribute_skips_validations	-5
+p3_increment	"6 5"
+p3_increment_bang	"6 6"
+p3_decrement	"4 5"
+p3_toggle	"false true true true true"
+p3_restore_attributes	"false 1"
+p3_previous_changes	true
+p3_instance_delete	"true false"
+p3_becomes	"LegacyPost bm 3 true"
+proxy_concat	"true true true 2"
+proxy_include	"true false"
+proxy_destroy_one	"0 false"
+p1_exists_hash	false
+p1_exists_hash_no	false
+p1_exists_nil	true
+p1_exists_id	"true false"
+p1_select_map	"pc4"
+p1_select_append	"updbang"
+p1_select_reselect	"pc4"
+p1_lock_first	"updbang"
+p1_lock_share	"updbang"
+p1_readonly_flag	true
+p1_readonly_save	raise:ActiveRecord::ReadOnlyRecord
+p1_readonly_destroy	raise:ActiveRecord::ReadOnlyRecord
+p1_strict_load_ok	"updbang"
+p1_strict_violation	raise:ActiveRecord::StrictLoadingViolationError
+p1_pk_create_find	"1 w1 true"
+p1_pk_first_ids	"w1 [1, 2, 3] b"
+p1_pk_stock_default	3
+p1_pk_destroy	false
+p1_attr_default_new	"anon"
+p1_attr_default_changed	true
+p1_attr_default_override	"zed"
+p1_attr_default_saved	"anon anon"
+p1_attr_default_db_null	nil
+p2_setup	"4 44"
+p2_through	"2 3 [\"tc1\", \"tc2\", \"tc3\"] [13, 14, 15]"
+p2_counter_cache	"2 1"
+p2_inverse_of	"true true true"
+p2_polymorphic	"1 1 cap1 PolyPost PolyAuthor"
+p2_habtm	"2 [\"blue\", \"red\"] [1, 2] 1"
+p2_habtm_delete	"1 4 0"
+p2_belongs_to_touch	"false false false"
+p2_includes_to_a	"50 2"
+p2_includes_first	"0 2"
+p2_includes_bt	"\"[1]\" 2"
+p2_lazy_control	"\"Post\" 2"
+p3_lock_version_incr	"0 1 1"
+p3_stale_object	raise:ActiveRecord::StaleObjectError
+p3_sti_create_find	"3 1 1 [\"Car\", \"Motorbike\"] Car Car"
+p3_sti_scopes	"1 Car sedan"
+p4_enum	"\"active\" true false 1 1"
+p4_enum_bang	"\"archived\" \"archived\" {\"draft\" => 0, \"active\" => 1, \"archived\" => 2}"
+p4_store	"\"dark\" \"dark\""
+p4_secure_token	"24 true"
+p4_cache_key	"\"badges/5\" badges/new \"posts/1\""
+p4_attr_readonly	"true \"ro1\""
+p4_alias_attribute	"\"alias-me\" 1 \"alias-me\""
+p5_nested_create	"true 2 [\"np1\", \"np2\"]"
+p5_nested_update_add	"\"upd\" 2"
+p5_nested_destroy	"1 false"
+p5_nested_reject	"1 [\"kept\"]"
+p5_nested_invalid	"false 0 [\"N posts title is too long (maximum is 5 characters)\"]"
+p2_eager_load_hm	"\"2 [[\\\"ep1\\\", \\\"ep2\\\"], []] [\\\"EL1\\\", \\\"EL2\\\"]\" 1"
+p2_eager_load_bt	"\"2 [\\\"EL1\\\"]\" 1"
+p2_eager_load_where	"\"2 [\\\"ep1\\\", \\\"ep2\\\"] [\\\"EL1\\\"]\" 1"
+p2_eager_load_references	"\"2 [\\\"EL1\\\"]\" 1"
+p6_ser_assign_read	"\"dark\" 2 true"
+p6_ser_roundtrip	"\"dark\" 2 [\"count\", \"theme\"] 2"
+p6_ser_update	"\"dark\" 7 \"dark\""
+p6_ser_array	"A[\"a\",\"b\"] A[\"a\",\"b\"]"
+p6_ser_array_default	"A[] A[]"
+p6_ser_array_update	"A[\"x\",\"y\"]"
+p6_autosave_hm_new	"1 \"ac1\""
+p6_autosave_hm_dirty	"\"dirty2\""
+p6_autosave_hm_invalid	"false [\"Auto comments body can't be blank\"] false 0"
+p6_autosave_bt_new	"true 83 true 1"
+p6_autosave_bt_dirty	"\"btp2u\""
+p6_autosave_bt_invalid	"false [\"Auto thread title can't be blank\"] false false 0"
+p2_assoc_cb_habtm	"before_add1:cbgold,before_add2:cbgold,after_add:cbgold,before_remove:cbgold,after_remove:cbgold 0"
+p2_assoc_cb_has_many	"before_add1:cbgold,before_add2:cbgold,after_add:cbgold,before_remove:cbgold,after_remove:cbgold,hm_before_add,hm_after_add,hm_before_remove,hm_after_remove"

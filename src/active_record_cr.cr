@@ -1,0 +1,29 @@
+require "db"
+require "pg"
+require "yaml"
+require "json"
+require "active_support_cr"
+
+require "./connection"
+require "./relation"
+require "./encryption"
+require "./base"
+require "./callbacks"
+require "./transactions"
+require "./validations"
+require "./associations"
+require "./persistence"
+require "./migrations"
+require "./schema"
+require "./schema_dumper"
+
+module ActiveRecord
+  VERSION = "0.1.0"
+
+  # Union of all attribute types (query args use DB::Any).
+  alias Value = Nil | Bool | Int64 | Float64 | String | Time | JSON::Any |
+                Array(String) | Array(Int64) | Bytes | PG::Numeric
+
+  # errors.details values carry validator types (:blank etc).
+  alias DetailValue = Value | Symbol
+end

@@ -1,0 +1,235 @@
+=== BASE
+-- columns
+-- indexes
+-- fks
+== 20261001000000 CreatePosts: migrating ======================================
+-- create_table(:posts)
+   -> 0.0466s
+== 20261001000000 CreatePosts: migrated (0.0467s) =============================
+
+== 20261001000001 CreateAuthors: migrating ====================================
+-- create_table(:authors)
+   -> 0.0285s
+== 20261001000001 CreateAuthors: migrated (0.0286s) ===========================
+
+== 20261001000002 CreateComments: migrating ===================================
+-- create_table(:comments)
+   -> 0.0294s
+== 20261001000002 CreateComments: migrated (0.0295s) ==========================
+
+== 20261001000003 AlterPosts: migrating =======================================
+-- add_reference(:posts, :author, {index: true})
+   -> 0.0112s
+-- add_column(:posts, :slug, :string)
+   -> 0.0031s
+-- add_index(:posts, :slug, {unique: true})
+   -> 0.0090s
+-- rename_column(:posts, :body, :content)
+   -> 0.0052s
+-- change_column_default(:posts, :views, 5)
+   -> 0.0086s
+-- change_column_null(:posts, :slug, false)
+   -> 0.0020s
+-- remove_column(:posts, :score)
+   -> 0.0020s
+-- add_foreign_key(:posts, :authors)
+   -> 0.0039s
+== 20261001000003 AlterPosts: migrated (0.0456s) ==============================
+
+== 20261001000004 ModifyPosts: migrating ======================================
+-- change_table(:posts)
+   -> 0.0146s
+-- create_join_table(:posts, :tags)
+   -> 0.0029s
+-- add_check_constraint(:posts, "views >= 0", {name: "posts_views_check"})
+   -> 0.0024s
+== 20261001000004 ModifyPosts: migrated (0.0200s) =============================
+
+== 20261001000005 CreateTempThings: migrating =================================
+-- create_table(:temp_things)
+   -> 0.0166s
+== 20261001000005 CreateTempThings: migrated (0.0167s) ========================
+
+== 20261001000006 DropTempThings: migrating ===================================
+-- drop_table(:temp_things)
+   -> 0.0087s
+== 20261001000006 DropTempThings: migrated (0.0088s) ==========================
+
+== 20261001000007 PartialAndReversible: migrating =============================
+-- add_index(:posts, :title, {where: "views > 0"})
+   -> 0.0147s
+-- execute("CREATE TABLE rev_marks (id bigserial PRIMARY KEY, note text)")
+   -> 0.0176s
+-- change_table(:posts)
+   -> 0.0143s
+== 20261001000007 PartialAndReversible: migrated (0.0468s) ====================
+
+== 20261001000008 LegacyWidgets: migrating ====================================
+-- execute("CREATE TABLE legacy_widgets (id bigserial PRIMARY KEY, note text)")
+   -> 0.0166s
+== 20261001000008 LegacyWidgets: migrated (0.0167s) ===========================
+
+=== UP
+-- columns
+authors.id int8(,64,0,) null=NO default="nextval('authors_id_seq'::regclass)"
+authors.name varchar(,,,) null=NO default=nil
+authors.email varchar(,,,) null=YES default=nil
+authors.ratio float8(,53,,) null=YES default=nil
+authors.meta json(,,,) null=YES default=nil
+authors.guid uuid(,,,) null=YES default=nil
+authors.blob_data bytea(,,,) null=YES default=nil
+authors.created_at timestamp(,,,6) null=NO default=nil
+authors.updated_at timestamp(,,,6) null=NO default=nil
+comments.id int8(,64,0,) null=NO default="nextval('comments_id_seq'::regclass)"
+comments.post_id int8(,64,0,) null=YES default=nil
+comments.body varchar(,,,) null=NO default=nil
+comments.created_at timestamp(,,,6) null=NO default=nil
+comments.updated_at timestamp(,,,6) null=NO default=nil
+legacy_widgets.id int8(,64,0,) null=NO default="nextval('legacy_widgets_id_seq'::regclass)"
+legacy_widgets.note text(,,,) null=YES default=nil
+posts.id int8(,64,0,) null=NO default="nextval('posts_id_seq'::regclass)"
+posts.title varchar(,,,) null=NO default=nil
+posts.content text(,,,) null=YES default=nil
+posts.views int4(,32,0,) null=NO default="5"
+posts.rating numeric(,8,2,) null=YES default=nil
+posts.published bool(,,,) null=NO default="false"
+posts.published_at timestamp(,,,6) null=YES default=nil
+posts.deadline time(,,,6) null=YES default=nil
+posts.tags jsonb(,,,) null=YES default="'[]'::jsonb"
+posts.created_at timestamp(,,,6) null=NO default=nil
+posts.updated_at timestamp(,,,6) null=NO default=nil
+posts.author_id int8(,64,0,) null=YES default=nil
+posts.slug varchar(,,,) null=NO default=nil
+posts.tagline varchar(,,,) null=YES default=nil
+posts_tags.post_id int8(,64,0,) null=NO default=nil
+posts_tags.tag_id int8(,64,0,) null=NO default=nil
+rev_marks.id int8(,64,0,) null=NO default="nextval('rev_marks_id_seq'::regclass)"
+rev_marks.note text(,,,) null=YES default=nil
+-- indexes
+authors.authors_pkey: CREATE UNIQUE INDEX authors_pkey ON public.authors USING btree (id)
+authors.index_authors_on_email: CREATE UNIQUE INDEX index_authors_on_email ON public.authors USING btree (email)
+comments.comments_pkey: CREATE UNIQUE INDEX comments_pkey ON public.comments USING btree (id)
+comments.index_comments_on_post_id: CREATE INDEX index_comments_on_post_id ON public.comments USING btree (post_id)
+legacy_widgets.legacy_widgets_pkey: CREATE UNIQUE INDEX legacy_widgets_pkey ON public.legacy_widgets USING btree (id)
+posts.index_posts_on_author_id: CREATE INDEX index_posts_on_author_id ON public.posts USING btree (author_id)
+posts.index_posts_on_content: CREATE INDEX index_posts_on_content ON public.posts USING btree (content) WHERE (views > 0)
+posts.index_posts_on_published: CREATE INDEX index_posts_on_published ON public.posts USING btree (published)
+posts.index_posts_on_slug: CREATE UNIQUE INDEX index_posts_on_slug ON public.posts USING btree (slug)
+posts.index_posts_on_tagline: CREATE INDEX index_posts_on_tagline ON public.posts USING btree (tagline)
+posts.index_posts_on_title: CREATE INDEX index_posts_on_title ON public.posts USING btree (title) WHERE (views > 0)
+posts.posts_pkey: CREATE UNIQUE INDEX posts_pkey ON public.posts USING btree (id)
+rev_marks.rev_marks_pkey: CREATE UNIQUE INDEX rev_marks_pkey ON public.rev_marks USING btree (id)
+-- fks
+comments.fk_rails_2fd19c0db7: FOREIGN KEY (post_id) REFERENCES posts(id)
+posts.fk_rails_04d13ef8c7: FOREIGN KEY (author_id) REFERENCES authors(id)
+== 20261001000008 LegacyWidgets: reverting ====================================
+-- execute("DROP TABLE legacy_widgets")
+   -> 0.0084s
+== 20261001000008 LegacyWidgets: reverted (0.0085s) ===========================
+
+=== STEP1
+-- columns
+authors.id int8(,64,0,) null=NO default="nextval('authors_id_seq'::regclass)"
+authors.name varchar(,,,) null=NO default=nil
+authors.email varchar(,,,) null=YES default=nil
+authors.ratio float8(,53,,) null=YES default=nil
+authors.meta json(,,,) null=YES default=nil
+authors.guid uuid(,,,) null=YES default=nil
+authors.blob_data bytea(,,,) null=YES default=nil
+authors.created_at timestamp(,,,6) null=NO default=nil
+authors.updated_at timestamp(,,,6) null=NO default=nil
+comments.id int8(,64,0,) null=NO default="nextval('comments_id_seq'::regclass)"
+comments.post_id int8(,64,0,) null=YES default=nil
+comments.body varchar(,,,) null=NO default=nil
+comments.created_at timestamp(,,,6) null=NO default=nil
+comments.updated_at timestamp(,,,6) null=NO default=nil
+posts.id int8(,64,0,) null=NO default="nextval('posts_id_seq'::regclass)"
+posts.title varchar(,,,) null=NO default=nil
+posts.content text(,,,) null=YES default=nil
+posts.views int4(,32,0,) null=NO default="5"
+posts.rating numeric(,8,2,) null=YES default=nil
+posts.published bool(,,,) null=NO default="false"
+posts.published_at timestamp(,,,6) null=YES default=nil
+posts.deadline time(,,,6) null=YES default=nil
+posts.tags jsonb(,,,) null=YES default="'[]'::jsonb"
+posts.created_at timestamp(,,,6) null=NO default=nil
+posts.updated_at timestamp(,,,6) null=NO default=nil
+posts.author_id int8(,64,0,) null=YES default=nil
+posts.slug varchar(,,,) null=NO default=nil
+posts.tagline varchar(,,,) null=YES default=nil
+posts_tags.post_id int8(,64,0,) null=NO default=nil
+posts_tags.tag_id int8(,64,0,) null=NO default=nil
+rev_marks.id int8(,64,0,) null=NO default="nextval('rev_marks_id_seq'::regclass)"
+rev_marks.note text(,,,) null=YES default=nil
+-- indexes
+authors.authors_pkey: CREATE UNIQUE INDEX authors_pkey ON public.authors USING btree (id)
+authors.index_authors_on_email: CREATE UNIQUE INDEX index_authors_on_email ON public.authors USING btree (email)
+comments.comments_pkey: CREATE UNIQUE INDEX comments_pkey ON public.comments USING btree (id)
+comments.index_comments_on_post_id: CREATE INDEX index_comments_on_post_id ON public.comments USING btree (post_id)
+posts.index_posts_on_author_id: CREATE INDEX index_posts_on_author_id ON public.posts USING btree (author_id)
+posts.index_posts_on_content: CREATE INDEX index_posts_on_content ON public.posts USING btree (content) WHERE (views > 0)
+posts.index_posts_on_published: CREATE INDEX index_posts_on_published ON public.posts USING btree (published)
+posts.index_posts_on_slug: CREATE UNIQUE INDEX index_posts_on_slug ON public.posts USING btree (slug)
+posts.index_posts_on_tagline: CREATE INDEX index_posts_on_tagline ON public.posts USING btree (tagline)
+posts.index_posts_on_title: CREATE INDEX index_posts_on_title ON public.posts USING btree (title) WHERE (views > 0)
+posts.posts_pkey: CREATE UNIQUE INDEX posts_pkey ON public.posts USING btree (id)
+rev_marks.rev_marks_pkey: CREATE UNIQUE INDEX rev_marks_pkey ON public.rev_marks USING btree (id)
+-- fks
+comments.fk_rails_2fd19c0db7: FOREIGN KEY (post_id) REFERENCES posts(id)
+posts.fk_rails_04d13ef8c7: FOREIGN KEY (author_id) REFERENCES authors(id)
+== 20261001000007 PartialAndReversible: reverting =============================
+-- remove_index(:posts, :content, {where: "views > 0"})
+   -> 0.0095s
+-- execute("DROP TABLE IF EXISTS rev_marks")
+   -> 0.0071s
+-- remove_index(:posts, :title, {where: "views > 0"})
+   -> 0.0086s
+== 20261001000007 PartialAndReversible: reverted (0.0299s) ====================
+
+== 20261001000006 DropTempThings: reverting ===================================
+== IRREVERSIBLE DropTempThings: 
+=== DOWN
+-- columns
+authors.id int8(,64,0,) null=NO default="nextval('authors_id_seq'::regclass)"
+authors.name varchar(,,,) null=NO default=nil
+authors.email varchar(,,,) null=YES default=nil
+authors.ratio float8(,53,,) null=YES default=nil
+authors.meta json(,,,) null=YES default=nil
+authors.guid uuid(,,,) null=YES default=nil
+authors.blob_data bytea(,,,) null=YES default=nil
+authors.created_at timestamp(,,,6) null=NO default=nil
+authors.updated_at timestamp(,,,6) null=NO default=nil
+comments.id int8(,64,0,) null=NO default="nextval('comments_id_seq'::regclass)"
+comments.post_id int8(,64,0,) null=YES default=nil
+comments.body varchar(,,,) null=NO default=nil
+comments.created_at timestamp(,,,6) null=NO default=nil
+comments.updated_at timestamp(,,,6) null=NO default=nil
+posts.id int8(,64,0,) null=NO default="nextval('posts_id_seq'::regclass)"
+posts.title varchar(,,,) null=NO default=nil
+posts.content text(,,,) null=YES default=nil
+posts.views int4(,32,0,) null=NO default="5"
+posts.rating numeric(,8,2,) null=YES default=nil
+posts.published bool(,,,) null=NO default="false"
+posts.published_at timestamp(,,,6) null=YES default=nil
+posts.deadline time(,,,6) null=YES default=nil
+posts.tags jsonb(,,,) null=YES default="'[]'::jsonb"
+posts.created_at timestamp(,,,6) null=NO default=nil
+posts.updated_at timestamp(,,,6) null=NO default=nil
+posts.author_id int8(,64,0,) null=YES default=nil
+posts.slug varchar(,,,) null=NO default=nil
+posts.tagline varchar(,,,) null=YES default=nil
+posts_tags.post_id int8(,64,0,) null=NO default=nil
+posts_tags.tag_id int8(,64,0,) null=NO default=nil
+-- indexes
+authors.authors_pkey: CREATE UNIQUE INDEX authors_pkey ON public.authors USING btree (id)
+authors.index_authors_on_email: CREATE UNIQUE INDEX index_authors_on_email ON public.authors USING btree (email)
+comments.comments_pkey: CREATE UNIQUE INDEX comments_pkey ON public.comments USING btree (id)
+comments.index_comments_on_post_id: CREATE INDEX index_comments_on_post_id ON public.comments USING btree (post_id)
+posts.index_posts_on_author_id: CREATE INDEX index_posts_on_author_id ON public.posts USING btree (author_id)
+posts.index_posts_on_published: CREATE INDEX index_posts_on_published ON public.posts USING btree (published)
+posts.index_posts_on_slug: CREATE UNIQUE INDEX index_posts_on_slug ON public.posts USING btree (slug)
+posts.index_posts_on_tagline: CREATE INDEX index_posts_on_tagline ON public.posts USING btree (tagline)
+posts.posts_pkey: CREATE UNIQUE INDEX posts_pkey ON public.posts USING btree (id)
+-- fks
+comments.fk_rails_2fd19c0db7: FOREIGN KEY (post_id) REFERENCES posts(id)
+posts.fk_rails_04d13ef8c7: FOREIGN KEY (author_id) REFERENCES authors(id)
