@@ -1654,3 +1654,34 @@ describe "ActiveRecord write oracle (expected.yml from activerecord 8.1.4)" do
     raised.should be_true
   end
 end
+
+# --- regression: STI record loaded from DB, update via save/save! -------------
+# (campfire bug: save on a loaded STI subclass returned false with empty
+# errors — a codegen workaround in Base#save fixed it; see persistence.cr.
+# Not an oracle-mirror case: plain true/false assertions against Rails 8.1.4
+# semantics — activerecord returns true from save when the UPDATE succeeds.)
+describe "STI update via save (regression)" do
+  before_all do
+    ActiveRecord::Base.establish_connection(ORACLE_URL)
+    conn = ActiveRecord::Base.connection
+    conn.exec("TRUNCATE vehicles RESTART IDENTITY")
+  end
+
+  it "loaded STI subclass saves with validations on update" do
+    Car.create!({"name" => "sedan", "wheels" => 4_i64})
+    car = Vehicle.all.where("name = ?", "sedan").first.not_nil!
+    car.class.name.should eq("Car")
+    car.name = "coupe"
+    car.save.should be_true
+    car.errors.full_messages.should eq([] of String)
+    Vehicle.all.where("name = ?", "coupe").first.not_nil!.class.name.should eq("Car")
+  end
+
+  it "loaded STI subclass update! raises nothing and persists" do
+    Motorbike.create!({"name" => "fast", "wheels" => 2_i64})
+    mb = Vehicle.all.where("name = ?", "fast").first.not_nil!
+    mb.class.name.should eq("Motorbike")
+    mb.update!({"name" => "turbo"}).should be_true
+    Motorbike.all.where("name = ?", "turbo").count.should eq(1)
+  end
+end

@@ -54,6 +54,16 @@ module ActiveRecord
       begin
         # Oracle-verified order (8.1.4): around_save wraps before_save and
         # the create/update chain; after_save runs after around_save exits.
+        #
+        # CODEGEN WORKAROUND (Crystal 1.21 / LLVM): when this closure's last
+        # executed effect is a write to the captured `saved` local (i.e. the
+        # write sits in tail position of the proc), the virtual call
+        # `__wrap_around_save(0, ...)` is miscompiled for some receiver
+        # classes: the call returns without ever entering the method, so the
+        # action silently never runs and save() returns false with empty
+        # errors (seen on STI subclasses like Rooms::Open). Any statement
+        # after the captured write restores correct codegen — hence the
+        # trailing `nil`. Do not make `saved = true` the last expression.
         __wrap_around_save(0, ->{
           if __run_before_save
             if new_record?
@@ -90,6 +100,8 @@ module ActiveRecord
             end
             saved = true
           end
+          # keep this tail statement: see the codegen-workaround note above
+          nil
         })
         if saved
           __run_after_save
