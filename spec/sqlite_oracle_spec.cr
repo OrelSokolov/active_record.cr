@@ -1,0 +1,245 @@
+# SQLite adapter oracle specs (Campfire prerequisite): CRUD, placeholders,
+# Rails 8 pragmas, FTS5 search and schema introspection — every read is
+# cross-checked against the sqlite3 CLI as the independent oracle
+# (AGENTS.md: synthetic cases + the original's own tooling).
+#
+# Models here compile-time-codegen from spec/fixtures/sqlite_schema.yml,
+# so this suite runs as its own compilation with that schema pinned
+# (the PG suites compile against db/schema.yml — one CRAILS_SCHEMA per
+# compile). Without CRAILS_SCHEMA this file compiles empty:
+#
+#   CRAILS_SCHEMA=spec/fixtures/sqlite_schema.yml \
+#     crystal spec spec/sqlite_oracle_spec.cr
+{% if env("CRAILS_SCHEMA") %}
+require "spec"
+require "file_utils"
+require "process"
+require "../src/active_record_cr"
+
+DB_PATH = File.join(Dir.tempdir, "crails_ar_sqlite_spec_#{Process.pid}.sqlite3")
+
+# --- models (compile-time codegen via the fixture schema, exactly the
+# --- production path; run with
+# --- CRAILS_SCHEMA=spec/fixtures/sqlite_schema.yml) ---
+
+class Room < ActiveRecord::Base
+end
+
+class Message < ActiveRecord::Base
+end
+
+# sqlite3 CLI oracle: first column of the first row, or all rows joined.
+module Oracle
+  def self.cli(sql : String) : String
+    out = `sqlite3 -readonly "#{DB_PATH}" "#{sql.gsub('"', %(\\"))}"`.strip
+    out
+  end
+
+  def self.rows(sql : String) : Array(Array(String))
+    output = `sqlite3 -readonly "#{DB_PATH}" "#{sql.gsub('"', %(\\"))}"`.strip
+    return [] of Array(String) if output.empty?
+    output.split('\n').map(&.split('|'))
+  end
+end
+
+describe "ActiveRecord SQLite adapter (oracle: sqlite3 CLI)" do
+  before_all do
+    FileUtils.rm_f(DB_PATH)
+    FileUtils.rm_f("#{DB_PATH}-wal")
+    FileUtils.rm_f("#{DB_PATH}-shm")
+    ActiveRecord::Base.establish_connection(adapter: "sqlite3", database: DB_PATH)
+    conn = ActiveRecord::Base.connection
+    conn.exec(<<-SQL)
+      CREATE TABLE rooms (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        kind VARCHAR NOT NULL DEFAULT 'open',
+        archived BOOLEAN NOT NULL DEFAULT 0,
+        created_at DATETIME,
+        updated_at DATETIME
+      )
+    SQL
+    conn.exec(<<-SQL)
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        room_id INTEGER NOT NULL,
+        body TEXT NOT NULL,
+        client_message_id VARCHAR,
+        pinned BOOLEAN NOT NULL DEFAULT 0,
+        created_at DATETIME,
+        updated_at DATETIME
+      )
+    SQL
+    conn.exec("CREATE VIRTUAL TABLE message_search_index USING fts5(body)")
+  end
+
+  after_all do
+    ActiveRecord::Base.connection.close
+    FileUtils.rm_f(DB_PATH)
+    FileUtils.rm_f("#{DB_PATH}-wal")
+    FileUtils.rm_f("#{DB_PATH}-shm")
+  end
+
+  describe "connection pragmas (Rails 8 set)" do
+    # journal_mode is persisted in the database file, so the independent
+    # CLI connection sees it; synchronous/busy_timeout/foreign_keys/
+    # journal_size_limit are per-connection and must be read back through
+    # ActiveRecord's own pooled connection.
+    it "enables WAL journal mode" do
+      Oracle.cli("PRAGMA journal_mode;").should eq("wal")
+    end
+
+    it "sets synchronous=NORMAL" do
+      ActiveRecord::Base.connection.query_one("PRAGMA synchronous", as: Int64)
+        .should eq(1_i64)
+    end
+
+    it "sets busy_timeout=5000ms" do
+      ActiveRecord::Base.connection.query_one("PRAGMA busy_timeout", as: Int64)
+        .should eq(5000_i64)
+    end
+
+    it "sets journal_size_limit=64MB" do
+      ActiveRecord::Base.connection.query_one("PRAGMA journal_size_limit", as: Int64)
+        .should eq(67108864_i64)
+    end
+
+    it "enforces foreign keys" do
+      ActiveRecord::Base.connection.query_one("PRAGMA foreign_keys", as: Int64)
+        .should eq(1_i64)
+    end
+
+    it "keeps mmap off" do
+      ActiveRecord::Base.connection.query_one("PRAGMA mmap_size", as: Int64)
+        .should eq(0_i64)
+    end
+
+    it "creates a WAL sidecar file" do
+      File.exists?("#{DB_PATH}-wal").should be_true
+    end
+  end
+
+  describe "CRUD through AR, verified by CLI" do
+    it "inserts and returns the autoincrement id" do
+      room = Room.new(name: "Watercooler", kind: "open").tap(&.save!)
+      room.id.should eq(1_i64)
+      room = Room.new(name: "HQ", kind: "open", archived: true).tap(&.save!)
+      room.id.should eq(2_i64)
+      Oracle.cli("SELECT count(*) FROM rooms;").should eq("2")
+      Oracle.rows("SELECT id, name, kind, archived FROM rooms ORDER BY id;")
+        .should eq([["1", "Watercooler", "open", "0"], ["2", "HQ", "open", "1"]])
+    end
+
+    it "writes timestamps on create" do
+      msg = Message.new(room_id: 1_i64, body: "coffee break",
+        client_message_id: "abc-123").tap(&.save!)
+      Oracle.cli("SELECT body FROM messages WHERE id = #{msg.id};")
+        .should eq("coffee break")
+      Oracle.cli("SELECT created_at IS NOT NULL AND updated_at IS NOT NULL FROM messages WHERE id = #{msg.id};")
+        .should eq("1")
+    end
+
+    it "round-trips booleans as 0/1 integers" do
+      msg = Message.new(room_id: 1_i64, body: "pin me", pinned: true).tap(&.save!)
+      Oracle.cli("SELECT pinned FROM messages WHERE id = #{msg.id};").should eq("1")
+      Message.find(msg.id.not_nil!).pinned?.should be_true
+      msg.update!({"pinned" => false})
+      Oracle.cli("SELECT pinned FROM messages WHERE id = #{msg.id};").should eq("0")
+    end
+
+    it "updates rows the CLI can see" do
+      msg = Message.new(room_id: 2_i64, body: "before edit").tap(&.save!)
+      msg.update!({"body" => "after edit"})
+      Oracle.cli("SELECT body FROM messages WHERE id = #{msg.id};")
+        .should eq("after edit")
+    end
+
+    it "deletes rows" do
+      msg = Message.new(room_id: 2_i64, body: "doomed").tap(&.save!)
+      msg.destroy
+      Oracle.cli("SELECT count(*) FROM messages WHERE id = #{msg.id};").should eq("0")
+    end
+
+    it "reads through where/order/limit matching CLI expectations" do
+      Message.new(room_id: 1_i64, body: "one").tap(&.save!)
+      Message.new(room_id: 1_i64, body: "two").tap(&.save!)
+      Message.new(room_id: 2_i64, body: "three").tap(&.save!)
+      ar_ids = Message.where("room_id = ?", 1_i64).order("id DESC").limit(2)
+        .map(&.id.not_nil!)
+      cli_ids = Oracle.rows(
+        "SELECT id FROM messages WHERE room_id = 1 ORDER BY id DESC LIMIT 2;")
+        .map { |r| r[0].to_i64 }
+      ar_ids.should eq(cli_ids)
+      ar_ids.size.should eq(2)
+    end
+  end
+
+  describe "FTS5 search parity with CLI" do
+    it "matches MATCH queries identically" do
+      conn = ActiveRecord::Base.connection
+      {10_i64, "coffee break now"}.tap do |id, body|
+        conn.exec("INSERT INTO message_search_index (rowid, body) VALUES ($1, $2)", id, body)
+      end
+      {11_i64, "tea time later"}.tap do |id, body|
+        conn.exec("INSERT INTO message_search_index (rowid, body) VALUES ($1, $2)", id, body)
+      end
+      {12_i64, "more coffee please"}.tap do |id, body|
+        conn.exec("INSERT INTO message_search_index (rowid, body) VALUES ($1, $2)", id, body)
+      end
+
+      ar_ids = conn.query_all(
+        "SELECT rowid FROM message_search_index WHERE message_search_index MATCH $1 ORDER BY rowid",
+        "coffee", as: Int64)
+      cli_ids = Oracle.rows(
+        "SELECT rowid FROM message_search_index WHERE message_search_index MATCH 'coffee' ORDER BY rowid;")
+        .map { |r| r[0].to_i64 }
+      ar_ids.should eq([10_i64, 12_i64])
+      ar_ids.should eq(cli_ids)
+    end
+  end
+
+  describe "schema introspection (schema.yml for codegen)" do
+    it "dumps tables with normalized udt types" do
+      path = File.join(Dir.tempdir, "crails_ar_sqlite_schema_#{Process.pid}.yml")
+      begin
+        tables = ActiveRecord::SchemaDumper.dump_to_file(path)
+        tables.should eq(2) # rooms + messages (fts shadow tables skipped)
+        yaml = YAML.parse(File.read(path))
+        rooms = yaml["rooms"]["columns"].as_a.map { |c|
+          {c["name"].as_s, c["type"].as_s, c["nullable"].as_s}
+        }
+        rooms.should contain({"name", "text", "NO"})
+        rooms.should contain({"kind", "varchar", "NO"})
+        rooms.should contain({"archived", "bool", "NO"})
+        rooms.should contain({"created_at", "timestamp", "YES"})
+        messages = yaml["messages"]["columns"].as_a.map { |c|
+          {c["name"].as_s, c["type"].as_s}
+        }
+        messages.should contain({"room_id", "int4"})
+        messages.should contain({"body", "text"})
+        messages.should contain({"client_message_id", "varchar"})
+      ensure
+        FileUtils.rm_f(path)
+      end
+    end
+  end
+
+  describe "build_url" do
+    it "maps adapter and database into a sqlite3 URL with Rails 8 defaults" do
+      url = ActiveRecord::Base.build_url(adapter: "sqlite3", database: "db/production.sqlite3")
+      url.should start_with("sqlite3://db/production.sqlite3?")
+      url.should contain("journal_mode=WAL")
+      url.should contain("synchronous=NORMAL")
+      url.should contain("cache_size=2000")
+      url.should contain("busy_timeout=5000")
+      url.should contain("foreign_keys=ON")
+      url.should contain("max_pool_size=5")
+    end
+
+    it "forces a single connection for :memory:" do
+      url = ActiveRecord::Base.build_url(adapter: "sqlite3", database: ":memory:")
+      url.should contain("max_pool_size=1")
+    end
+  end
+end
+{% end %}

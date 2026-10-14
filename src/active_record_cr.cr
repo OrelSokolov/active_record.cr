@@ -1,5 +1,6 @@
 require "db"
 require "pg"
+require "sqlite3"
 require "yaml"
 require "json"
 require "active_support_cr"

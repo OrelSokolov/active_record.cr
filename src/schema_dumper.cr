@@ -191,14 +191,7 @@ module ActiveRecord
     # --- db/schema.yml (fallback: model codegen input) ------------------------
 
     def self.dump_to_file(path : String = "db/schema.yml") : Int32
-      rows = Base.connection.query_all(<<-SQL, as: {String, String, String, String, String?})
-        SELECT c.table_name, c.column_name, c.udt_name, c.is_nullable, c.column_default
-        FROM information_schema.columns c
-        JOIN information_schema.tables t
-          ON t.table_schema = c.table_schema AND t.table_name = c.table_name
-        WHERE c.table_schema = 'public' AND t.table_type = 'BASE TABLE'
-        ORDER BY c.table_name, c.ordinal_position
-      SQL
+      rows = Base.sqlite? ? sqlite_rows : postgres_rows
 
       tables = {} of String => Hash(String, Array(Hash(String, String?)))
       rows.each do |(table, column, udt, nullable, default)|
@@ -210,6 +203,73 @@ module ActiveRecord
       Dir.mkdir_p(File.dirname(path)) unless File.dirname(path) == "."
       File.write(path, YAML.dump(tables))
       tables.size
+    end
+
+    # SQLite introspection: sqlite_master + PRAGMA table_info, with declared
+    # types normalized to the PostgreSQL udt names the codegen understands
+    # (crystal_type/rails_type in codegen_runner.cr stay untouched).
+    # FTS5 shadow tables (<vt>_data/_idx/_content/_docsize/_config) are
+    # skipped by excluding every table shadowing a virtual table.
+    def self.sqlite_rows : Array({String, String, String, String, String?})
+      conn = Base.connection
+      virtual = conn.query_all(
+        "SELECT name FROM sqlite_master WHERE type = 'table' " \
+        "AND sql LIKE 'CREATE VIRTUAL TABLE%'", as: String)
+      shadows = ->(name : String) { virtual.any? { |vt| name == vt || name.starts_with?("#{vt}_") } }
+      tables = conn.query_all(
+        "SELECT name FROM sqlite_master WHERE type = 'table' " \
+        "AND name NOT LIKE 'sqlite_%' ORDER BY name", as: String)
+        .reject { |name| shadows.call(name) }
+      rows = [] of {String, String, String, String, String?}
+      tables.each do |table|
+        conn.query("PRAGMA table_info(#{quote_ident_sqlite(table)})") do |rs|
+          rs.each do
+            rs.read(Int32)                                  # cid
+            name = rs.read(String)
+            declared = rs.read(String)
+            notnull = rs.read(Int64)
+            default = rs.read(String?)
+            pk = rs.read(Int64)
+            # INTEGER PRIMARY KEY reports notnull=0 while being NOT NULL;
+            # any pk flag (composite pks are 1..n) means NO NULLs.
+            rows << {table, name, sqlite_udt(declared),
+                     (notnull == 1_i64 || pk > 0) ? "NO" : "YES", default}
+          end
+        end
+      end
+      rows
+    end
+
+    # SQLite column affinity → PostgreSQL udt name (codegen's vocabulary).
+    def self.sqlite_udt(declared : String) : String
+      d = declared.downcase
+      return "varchar" if d.empty? # typeless column → string
+      return "bytea" if d.includes?("blob")
+      return "bool" if d.includes?("bool")
+      return "float8" if d.includes?("real") || d.includes?("floa") || d.includes?("doub")
+      return "numeric" if d.includes?("num") || d.includes?("dec")
+      return "timestamp" if d.includes?("timestamp") || d.includes?("datetime")
+      return "date" if d == "date"
+      return "jsonb" if d.includes?("json")
+      return "varchar" if d.includes?("char") || d.includes?("clob")
+      return "int8" if d.includes?("bigint") || d.includes?("int8")
+      return "int4" if d.includes?("int")
+      "text"
+    end
+
+    def self.quote_ident_sqlite(name : String) : String
+      %("#{name.gsub('"', %("""))}")
+    end
+
+    def self.postgres_rows : Array({String, String, String, String, String?})
+      Base.connection.query_all(<<-SQL, as: {String, String, String, String, String?})
+        SELECT c.table_name, c.column_name, c.udt_name, c.is_nullable, c.column_default
+        FROM information_schema.columns c
+        JOIN information_schema.tables t
+          ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+        WHERE c.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+        ORDER BY c.table_name, c.ordinal_position
+      SQL
     end
 
     # --- emit helpers -----------------------------------------------------------

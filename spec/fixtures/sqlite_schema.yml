@@ -1,0 +1,57 @@
+---
+rooms:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: name
+    type: text
+    nullable: 'NO'
+    default:
+  - name: kind
+    type: varchar
+    nullable: 'NO'
+    default: '''open'''
+  - name: archived
+    type: bool
+    nullable: 'NO'
+    default: '0'
+  - name: created_at
+    type: timestamp
+    nullable: 'YES'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'YES'
+    default:
+messages:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: room_id
+    type: int4
+    nullable: 'NO'
+    default:
+  - name: body
+    type: text
+    nullable: 'NO'
+    default:
+  - name: client_message_id
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: pinned
+    type: bool
+    nullable: 'NO'
+    default: '0'
+  - name: created_at
+    type: timestamp
+    nullable: 'YES'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'YES'
+    default:

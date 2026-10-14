@@ -7,6 +7,8 @@ dependencies:
     version: ~> 0.1.0
   pg:
     github: will/crystal-pg
+  sqlite3:
+    github: crystal-lang/crystal-sqlite3
 targets:
   ar_schema_dump:
     main: src/schema_dump_cli.cr

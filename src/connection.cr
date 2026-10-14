@@ -8,18 +8,51 @@ module ActiveRecord
   class Base
     @@db : DB::Database?
     @@schema_search_path : String?
+    @@adapter_scheme : String?
 
     def self.establish_connection(url : String) : DB::Database
+      scheme = URI.parse(url).scheme.to_s
       db = DB.open(url)
+      @@adapter_scheme = scheme
+      configure_adapter(db, scheme)
       @@db.try(&.close)
       @@db = db
-      if path = @@schema_search_path
-        self.schema_search_path = path
+      case scheme
+      when "postgres", "postgresql"
+        if path = @@schema_search_path
+          self.schema_search_path = path
+        end
       end
       db
     rescue ex
       raise ConnectionNotEstablished.new(
         "Failed to connect to #{url.gsub(/\/\/[^@]*@/, "//***@")}: #{ex.message}")
+    end
+
+    # Adapter of the live connection ("postgres", "sqlite3", ...).
+    def self.adapter_name : String
+      @@adapter_scheme || ""
+    end
+
+    def self.sqlite? : Bool
+      @@adapter_scheme == "sqlite3"
+    end
+
+    # Adapter tuning applied right after connect. SQLite gets the Rails 8
+    # pragma set (WAL, synchronous=NORMAL, journal_size_limit 64 MB,
+    # cache_size 2000, mmap off); everything but journal_size_limit rides
+    # on the URI (the sqlite3 shard applies those per pooled connection),
+    # journal_size_limit needs a per-connection exec.
+    private def self.configure_adapter(db : DB::Database, scheme : String) : Nil
+      return unless scheme == "sqlite3"
+      db.setup_connection do |conn|
+        # busy_timeout обязателен при многопроцессном доступе (serverX
+        # workers / jobs): без него конкурентные записи ловят
+        # SQLite3::Exception "database is locked".
+        conn.exec("PRAGMA busy_timeout=10000")
+        conn.exec("PRAGMA journal_size_limit=67108864")
+        conn.exec("PRAGMA mmap_size=0")
+      end
     end
 
     # Rails-style config: adapter, host, port, username, password,
@@ -70,7 +103,27 @@ module ActiveRecord
 
     def self.build_url(**config) : String
       adapter = config[:adapter]? || "postgresql"
-      scheme = adapter == "postgres" ? "postgres" : "postgres"
+      case adapter
+      when "sqlite3", "sqlite"
+        scheme = "sqlite3"
+        database = config[:database]? || raise(
+          ConnectionNotEstablished.new("missing `database:`"))
+        # `:memory:` and temp files are per-connection in SQLite: a pool would
+        # silently give every connection its own private database (Rails
+        # makes the same single-connection choice).
+        pool = database == ":memory:" || database.starts_with?("file:") ? 1 : (config[:pool]? || 5)
+        params = [] of String
+        params << "max_pool_size=#{pool}"
+        params << "max_idle_pool_size=#{pool}"
+        # Rails 8 sqlite3 pragma defaults; overridable via config keys.
+        params << "journal_mode=#{config[:journal_mode]? || "WAL"}"
+        params << "synchronous=#{config[:synchronous]? || "NORMAL"}"
+        params << "cache_size=#{config[:cache_size]? || 2000}"
+        params << "busy_timeout=#{config[:busy_timeout]? || 5000}"
+        params << "foreign_keys=#{config[:foreign_keys]? || "ON"}"
+        return "#{scheme}://#{URI.encode_path(database)}?#{params.join("&")}"
+      end
+      scheme = "postgres"
       database = config[:database]? || ENV["PGDATABASE"]? || raise(
         ConnectionNotEstablished.new("missing `database:`"))
       user = config[:username]? || ENV["PGUSER"]?
