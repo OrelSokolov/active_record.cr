@@ -6,6 +6,7 @@ require "json"
 require "active_support_cr"
 
 require "./connection"
+require "./fair_busy"
 require "./relation"
 require "./encryption"
 require "./base"

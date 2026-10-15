@@ -68,6 +68,10 @@ module ActiveRecord
         conn.exec("PRAGMA foreign_keys=#{default.call("foreign_keys", "on")}")
         conn.exec("PRAGMA journal_size_limit=#{default.call("journal_size_limit", "67108864")}")
         conn.exec("PRAGMA mmap_size=#{default.call("mmap_size", "0")}")
+        # Fair busy handler: равномерные 500µs вместо эскалирующих
+        # 1→100ms дефолта (см. fair_busy.cr). busy_handler подменяет
+        # busy_timeout-хендлер, установленный прагмой выше.
+        FairBusy.install(conn.as(SQLite3::Connection))
       end
     end
 
