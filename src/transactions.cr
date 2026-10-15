@@ -13,6 +13,10 @@
 # - after_commit fires on the real COMMIT (deferred from savepoints),
 #   after_rollback on any rollback (including savepoint ones); without an
 #   open transaction both fire per-op (implicit auto-commit tx).
+# - SQLite: outermost BEGIN is BEGIN IMMEDIATE TRANSACTION (Rails 8.1
+#   sqlite3_adapter#begin_db_transaction) — writer takes the write-lock
+#   up front and waits via the driver busy_timeout, never hitting
+#   SQLITE_BUSY mid-transaction on the first write.
 #
 # All model DB access routes through `Base.__session` so that queries
 # issued inside a transaction reuse the pinned connection.
@@ -117,6 +121,13 @@ module ActiveRecord
               level = ISOLATION_LEVELS[iso]?
               raise ArgumentError.new("invalid isolation level #{iso}") unless level
               conn.exec("BEGIN TRANSACTION ISOLATION LEVEL #{level}")
+            elsif Base.sqlite?
+              # Rails 8.1 sqlite3_adapter: begin_db_transaction →
+              # BEGIN IMMEDIATE TRANSACTION — писатель берёт write-lock
+              # сразу и ждёт его через busy_timeout драйвера, вместо
+              # мгновенного SQLITE_BUSY в первом UPDATE отложенной
+              # транзакции.
+              conn.exec("BEGIN IMMEDIATE TRANSACTION")
             else
               conn.exec("BEGIN")
             end
