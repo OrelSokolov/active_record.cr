@@ -14,7 +14,7 @@ module ActiveRecord
       scheme = URI.parse(url).scheme.to_s
       db = DB.open(url)
       @@adapter_scheme = scheme
-      configure_adapter(db, scheme)
+      configure_adapter(db, scheme, url)
       @@db.try(&.close)
       @@db = db
       case scheme
@@ -43,15 +43,31 @@ module ActiveRecord
     # cache_size 2000, mmap off); everything but journal_size_limit rides
     # on the URI (the sqlite3 shard applies those per pooled connection),
     # journal_size_limit needs a per-connection exec.
-    private def self.configure_adapter(db : DB::Database, scheme : String) : Nil
+    #
+    # Raw DATABASE_URL (no query params) bypasses build_url's pragma
+    # params — Rails merges ENV["DATABASE_URL"] into database.yml config,
+    # so the adapter defaults still apply. Mirror that: pragmas missing
+    # from the URI get the Rails 8 defaults per pooled connection
+    # (journal_mode is persisted in the file; setting WAL here is a
+    # no-op for WAL databases and converts rollback-journal ones, the
+    # same behavior a Rails deployment has).
+    private def self.configure_adapter(db : DB::Database, scheme : String, url : String) : Nil
       return unless scheme == "sqlite3"
+      url_params = HTTP::Params.parse(URI.parse(url).query || "")
+      default = ->(key : String, value : String) do
+        url_params[key]? || value
+      end
       db.setup_connection do |conn|
         # busy_timeout обязателен при многопроцессном доступе (serverX
         # workers / jobs): без него конкурентные записи ловят
         # SQLite3::Exception "database is locked".
-        conn.exec("PRAGMA busy_timeout=10000")
-        conn.exec("PRAGMA journal_size_limit=67108864")
-        conn.exec("PRAGMA mmap_size=0")
+        conn.exec("PRAGMA busy_timeout=#{default.call("busy_timeout", "10000")}")
+        conn.exec("PRAGMA journal_mode=#{default.call("journal_mode", "wal")}")
+        conn.exec("PRAGMA synchronous=#{default.call("synchronous", "normal")}")
+        conn.exec("PRAGMA cache_size=#{default.call("cache_size", "2000")}")
+        conn.exec("PRAGMA foreign_keys=#{default.call("foreign_keys", "on")}")
+        conn.exec("PRAGMA journal_size_limit=#{default.call("journal_size_limit", "67108864")}")
+        conn.exec("PRAGMA mmap_size=#{default.call("mmap_size", "0")}")
       end
     end
 

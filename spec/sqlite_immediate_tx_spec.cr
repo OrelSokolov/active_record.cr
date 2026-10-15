@@ -19,8 +19,10 @@ describe "ActiveRecord SQLite immediate transactions" do
     FileUtils.rm_f(DB_PATH)
     FileUtils.rm_f("#{DB_PATH}-wal")
     FileUtils.rm_f("#{DB_PATH}-shm")
+    # Raw URL без pragma-параметров (как DATABASE_URL в проде) —
+    # Rails 8 дефолты должен применить адаптер, а не URL.
     ActiveRecord::Base.establish_connection(
-      adapter: "sqlite3", database: DB_PATH, pool: 1)
+      "sqlite3://#{DB_PATH}?max_pool_size=1")
     ActiveRecord::Base.connection.exec(<<-SQL)
       CREATE TABLE rooms (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,6 +35,13 @@ describe "ActiveRecord SQLite immediate transactions" do
     FileUtils.rm_f(DB_PATH)
     FileUtils.rm_f("#{DB_PATH}-wal")
     FileUtils.rm_f("#{DB_PATH}-shm")
+  end
+
+  it "applies Rails 8 pragma defaults to a raw DATABASE_URL" do
+    conn = ActiveRecord::Base.connection
+    conn.query_one("PRAGMA journal_mode", as: String).downcase.should eq("wal")
+    conn.query_one("PRAGMA synchronous", as: Int64).should eq(1_i64) # NORMAL
+    conn.query_one("PRAGMA busy_timeout", as: Int64).should eq(10_000_i64)
   end
 
   it "begins the outermost transaction IMMEDIATE (write-lock at BEGIN)" do
