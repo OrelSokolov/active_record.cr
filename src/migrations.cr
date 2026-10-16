@@ -8,6 +8,13 @@
 # add/remove_foreign_key, execute (up/down only).
 # `change` is reverted through a command recorder; non-reversible commands
 # raise ActiveRecord::IrreversibleMigration on rollback, exactly like Rails.
+#
+# PostgreSQL and SQLite are both supported. SQLite follows the Rails
+# sqlite3 adapter: integer PRIMARY KEY AUTOINCREMENT ids, native type
+# names (varchar, datetime(6)), inline FOREIGN KEY/CHECK constraints, and
+# table rebuilds (ALTER TABLE cannot change columns or add constraints).
+# Rollback of constraint/null changes on SQLite is not supported yet
+# (the recorded inverses use PostgreSQL ALTER syntax).
 
 require "digest"
 
@@ -96,13 +103,18 @@ module ActiveRecord
         end
 
         def self.default_sql(default) : String
+          sqlite = Base.sqlite?
           case default
-          when String then "'#{default}'"
+          when String   then "'#{default.gsub('\'', "''")}'"
           when JSON::Any
-            "'#{default.to_json}'::jsonb"
+            sqlite ? "'#{default.to_json}'" : "'#{default.to_json}'::jsonb"
           when Array                then "'[]'"
-          when Bool, Int64, Float64 then default.to_s
-          else                           default.to_s
+          when Bool
+            # SQLite has no true/false literals (DEFAULT 1/0, like the
+            # Rails sqlite3 adapter emits); PostgreSQL takes the keyword.
+            sqlite ? (default ? "1" : "0") : default.to_s
+          when Int64, Float64 then default.to_s
+          else                     default.to_s
           end
         end
       end
@@ -151,11 +163,15 @@ module ActiveRecord
       # polymorphic: true adds the `{name}_type` string column (Rails
       # `t.references :tag, polymorphic: true` — needed by `crails generate
       # model`), null: false carries over to the reference column.
+      # `type:` overrides the column type (Rails `t.references :user,
+      # type: :integer` — the ONCE schema stores plain integer FKs).
       def references(name : Symbol | String, index : Bool = true,
                      foreign_key : Bool = false, polymorphic : Bool = false,
-                     null : Bool = true, **opts)
+                     null : Bool = true, type : Symbol | String? = nil,
+                     **opts)
         col = "#{name}_id"
-        columns << Column.new(col, "bigint", nil, null)
+        columns << Column.new(col, Migrations.sql_type(type || :bigint, opts),
+          nil, null)
         if polymorphic
           columns << Column.new("#{name}_type", "character varying(255)", nil, null)
         end
@@ -166,6 +182,22 @@ module ActiveRecord
           foreign_keys << ForeignKey.new(col, Migrations.tableize(name.to_s),
             Migrations.fk_name(@table_name, col))
         end
+      end
+
+      # t.belongs_to — Rails alias for references.
+      def belongs_to(name : Symbol | String, **opts) : Nil
+        references(name, **opts)
+      end
+
+      # t.foreign_key :users, column: :user_id — inline FOREIGN KEY
+      # constraint (Rails TableDefinition#foreign_key). On PostgreSQL it is
+      # applied via ALTER TABLE after create; on SQLite it lands directly in
+      # the CREATE TABLE statement (SQLite cannot ADD CONSTRAINT).
+      def foreign_key(to_table : Symbol | String, column : Symbol | String? = nil,
+                      name : String? = nil, **opts)
+        col = (column || Migrations.singularize(to_table.to_s) + "_id").to_s
+        foreign_keys << ForeignKey.new(col, to_table.to_s,
+          name || Migrations.fk_name(@table_name, col))
       end
 
       def add_index(columns : Array(String), unique : Bool = false,
@@ -203,6 +235,7 @@ module ActiveRecord
     # --- schema statements ------------------------------------------------
     def create_table(name : Symbol | String, primary_key : Symbol | String = "id",
                      id : Bool = true, force : Symbol | String? = nil,
+                     if_not_exists : Bool = false,
                      &block : TableDefinition ->) : Nil
       table = name.to_s
       if recording?
@@ -211,20 +244,41 @@ module ActiveRecord
         record(-> { Base.connection.exec(%(DROP TABLE IF EXISTS "#{table}")); nil })
         return
       end
+      return if if_not_exists && table_exists?(table)
       td = TableDefinition.build(table)
       block.call(td)
       if force # schema.cr dumps carry force: :cascade for Rails-1:1 reloads
-        cascade = force.to_s == "cascade" ? " CASCADE" : " RESTRICT"
-        Base.connection.exec(%(DROP TABLE IF EXISTS "#{table}"#{cascade}))
+        if Base.sqlite? # SQLite has no DROP ... CASCADE
+          Base.connection.exec(%(DROP TABLE IF EXISTS "#{table}"))
+        else
+          cascade = force.to_s == "cascade" ? " CASCADE" : " RESTRICT"
+          Base.connection.exec(%(DROP TABLE IF EXISTS "#{table}"#{cascade}))
+        end
       end
       cols = String.build do |s|
         if id
-          s << %("#{primary_key}" bigserial PRIMARY KEY)
+          # SQLite Rails 8 form (sqlite_master shows exactly this); PostgreSQL
+          # uses bigserial like the AR adapter.
+          s << (Base.sqlite? ? %("#{primary_key}" integer PRIMARY KEY AUTOINCREMENT NOT NULL)
+                             : %("#{primary_key}" bigserial PRIMARY KEY))
           s << ", " unless td.columns.empty?
         end
         td.columns.each_with_index do |c, i|
           s << ", " if i > 0
           s << c.to_sql
+        end
+        # SQLite cannot ADD CONSTRAINT after the fact — foreign keys and
+        # check constraints ride directly in the CREATE TABLE statement
+        # (Rails' rebuild lands them here too).
+        if Base.sqlite?
+          td.foreign_keys.each do |fk|
+            s << ", "
+            s << %(CONSTRAINT "#{fk.name}" FOREIGN KEY ("#{fk.column}") REFERENCES "#{fk.to_table}" ("id"))
+          end
+          td.check_constraints.each do |cc|
+            s << ", "
+            s << %(CONSTRAINT "#{cc.name}" CHECK (#{cc.expression}))
+          end
         end
       end
       Base.connection.exec(%(CREATE TABLE "#{table}" (#{cols})))
@@ -234,13 +288,15 @@ module ActiveRecord
         Base.connection.exec(
           %(CREATE #{unique}INDEX "#{i.name}" ON "#{table}" (#{i.columns.map { |c| %("#{c}") }.join(", ")})#{where_sql}))
       end
-      td.foreign_keys.each do |fk|
-        Base.connection.exec(
-          %(ALTER TABLE "#{table}" ADD CONSTRAINT "#{fk.name}" FOREIGN KEY ("#{fk.column}") REFERENCES "#{fk.to_table}" ("id")))
-      end
-      td.check_constraints.each do |cc|
-        Base.connection.exec(
-          %(ALTER TABLE "#{table}" ADD CONSTRAINT "#{cc.name}" CHECK (#{cc.expression})))
+      unless Base.sqlite?
+        td.foreign_keys.each do |fk|
+          Base.connection.exec(
+            %(ALTER TABLE "#{table}" ADD CONSTRAINT "#{fk.name}" FOREIGN KEY ("#{fk.column}") REFERENCES "#{fk.to_table}" ("id")))
+        end
+        td.check_constraints.each do |cc|
+          Base.connection.exec(
+            %(ALTER TABLE "#{table}" ADD CONSTRAINT "#{cc.name}" CHECK (#{cc.expression})))
+        end
       end
     end
 
@@ -399,8 +455,13 @@ module ActiveRecord
         end
         return
       end
-      Base.connection.exec(
-        %(ALTER TABLE "#{table}" DROP COLUMN IF EXISTS "#{name}"))
+      if Base.sqlite? # SQLite has no DROP COLUMN IF EXISTS
+        Base.connection.exec(
+          %(ALTER TABLE "#{table}" DROP COLUMN "#{name}"))
+      else
+        Base.connection.exec(
+          %(ALTER TABLE "#{table}" DROP COLUMN IF EXISTS "#{name}"))
+      end
     end
 
     def rename_column(table : Symbol | String, name : Symbol | String,
@@ -422,6 +483,14 @@ module ActiveRecord
           "change_column_default is only reversible with from/to (not supported)")
       end
       sql_default = default.nil? ? "NULL" : TableDefinition::Column.default_sql(default)
+      if Base.sqlite?
+        tbl = table.to_s
+        sqlite_change_column(tbl, name.to_s) do |defn|
+          base = defn.sub(/ DEFAULT [^,]*\z/, "")
+          default.nil? ? base : "#{base} DEFAULT #{sql_default}"
+        end
+        return
+      end
       Base.connection.exec(
         %(ALTER TABLE "#{table}" ALTER COLUMN "#{name}" SET DEFAULT #{sql_default}))
     end
@@ -430,6 +499,17 @@ module ActiveRecord
                            null : Bool) : Nil
       if recording?
         raise IrreversibleMigration.new("change_column_null is not reversible")
+      end
+      if Base.sqlite?
+        tbl = table.to_s
+        sqlite_change_column(tbl, name.to_s) do |defn|
+          if null
+            defn.sub(/ NOT NULL\z/, "")
+          else
+            defn.ends_with?(" NOT NULL") ? defn : "#{defn} NOT NULL"
+          end
+        end
+        return
       end
       clause = null ? "DROP NOT NULL" : "SET NOT NULL"
       Base.connection.exec(%(ALTER TABLE "#{table}" ALTER COLUMN "#{name}" #{clause}))
@@ -442,6 +522,10 @@ module ActiveRecord
       end
       col = TableDefinition::Column.new(name.to_s, Migrations.sql_type(type, opts),
         opts[:default]?, Migrations.null_of(opts))
+      if Base.sqlite?
+        sqlite_change_column(table.to_s, name.to_s) { col.to_sql }
+        return
+      end
       Base.connection.exec(
         %(ALTER TABLE "#{table}" ALTER COLUMN "#{name}" TYPE #{col.sql_type.split(" ", 2)[1]? || "text"}))
     end
@@ -547,6 +631,16 @@ module ActiveRecord
         record(-> { Base.connection.exec(%(ALTER TABLE "#{from}" DROP CONSTRAINT IF EXISTS "#{fk_name}")); nil })
         return
       end
+      if Base.sqlite?
+        # no ALTER ... ADD CONSTRAINT — splice the constraint into the
+        # stored CREATE TABLE DDL and rebuild
+        old_sql = Base.connection.query_one(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+          args: [from], as: String)
+        clause = %(CONSTRAINT "#{fk_name}" FOREIGN KEY ("#{col}") REFERENCES "#{to}" ("id"))
+        sqlite_rebuild(from, "#{old_sql.rchop(')')}, #{clause})")
+        return
+      end
       Base.connection.exec(
         %(ALTER TABLE "#{from}" ADD CONSTRAINT "#{fk_name}" FOREIGN KEY ("#{col}") REFERENCES "#{to}" ("id")))
     end
@@ -561,11 +655,76 @@ module ActiveRecord
       Base.connection.exec(%(ALTER TABLE "#{from}" DROP CONSTRAINT IF EXISTS "#{fk_name}"))
     end
 
+    # execute(sql) — passthrough; on SQLite every statement the driver
+    # accepts can run (including `create virtual table ... using fts5`).
     def execute(sql : String) : Nil
       if recording?
         raise IrreversibleMigration.new("execute is not reversible (use up/down)")
       end
       Base.connection.exec(sql)
+    end
+
+    def table_exists?(name : Symbol | String) : Bool
+      table = name.to_s
+      if Base.sqlite?
+        Base.connection.query_one?(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+          args: [table], as: Int32) ? true : false
+      else
+        Base.connection.query_one?(
+          "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1 LIMIT 1",
+          args: [table], as: Int32) ? true : false
+      end
+    end
+
+    def column_exists?(table : Symbol | String, column : Symbol | String) : Bool
+      if Base.sqlite?
+        Base.connection.query_one?(
+          "SELECT 1 FROM pragma_table_info(?) WHERE name = ? LIMIT 1",
+          args: [table.to_s, column.to_s], as: Int32) ? true : false
+      else
+        Base.connection.query_one?(
+          "SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2 LIMIT 1",
+          args: [table.to_s, column.to_s], as: Int32) ? true : false
+      end
+    end
+
+    # --- SQLite table rebuild ---------------------------------------------
+    # SQLite cannot ALTER a column's type/null/default and cannot ADD
+    # CONSTRAINT, so (like the Rails sqlite3 adapter's alter_table) the
+    # table is rebuilt: CREATE "altered_x" from a modified DDL, copy rows,
+    # drop the original, rename, recreate the indexes.
+    private def sqlite_rebuild(table : String, new_sql : String) : Nil
+      conn = Base.connection
+      tmp = "altered_#{table}"
+      conn.exec(%(DROP TABLE IF EXISTS "#{tmp}"))
+      conn.exec(new_sql.sub(%(CREATE TABLE "#{table}"), %(CREATE TABLE "#{tmp}")))
+      conn.exec(%(INSERT INTO "#{tmp}" SELECT * FROM "#{table}"))
+      indexes = conn.query_all(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL",
+        args: [table], as: String)
+      conn.exec(%(DROP TABLE "#{table}"))
+      conn.exec(%(ALTER TABLE "#{tmp}" RENAME TO "#{table}"))
+      indexes.each { |ddl| conn.exec(ddl) }
+    end
+
+    # Replaces the `"column" type [DEFAULT ..] [NOT NULL]` definition inside
+    # the stored CREATE TABLE DDL. Column definitions live before the first
+    # table CONSTRAINT clause, so everything from there on is kept verbatim.
+    # The block receives the current definition and returns the new one.
+    private def sqlite_change_column(table : String, column : String,
+                                     & : String -> String) : Nil
+      old_sql = Base.connection.query_one(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+        args: [table], as: String)
+      defs_end = old_sql.index("CONSTRAINT") || (old_sql.size - 1)
+      defs = old_sql[0...defs_end]
+      rest = old_sql[defs_end..]
+      pattern = /"#{Regex.escape(column)}"\s[^,]*/
+      match = defs.match(pattern)
+      raise "sqlite rebuild: no column #{column} in #{table}" unless match
+      new_defs = defs.sub(pattern, yield match[0])
+      sqlite_rebuild(table, new_defs + rest)
     end
 
     # reversible do |dir|
@@ -623,34 +782,62 @@ module ActiveRecord
   module Migrations
     extend self
 
-    # Rails type → PostgreSQL DDL (verified against oracle/migrations_expected.yml)
+    # Rails type → adapter DDL (verified against oracle/migrations_expected.yml).
+    # SQLite branch mirrors the Rails sqlite3 adapter's native types (the
+    # ONCE seed database declares exactly these: varchar, datetime(6), ...).
     def sql_type(type : Symbol | String, opts) : String
       precision = opts[:precision]?
       scale = opts[:scale]?
       limit = opts[:limit]?
-      case type.to_s
-      when "string"  then limit ? "character varying(#{limit})" : "character varying"
-      when "text"    then "text"
-      when "integer" then "integer"
-      when "bigint"  then "bigint"
-      when "float"   then "double precision"
-      when "decimal"
-        if precision && scale
-          "numeric(#{precision},#{scale})"
-        elsif precision
-          "numeric(#{precision})"
-        else
-          "numeric"
+      if Base.sqlite?
+        case type.to_s
+        when "string"   then limit ? "varchar(#{limit})" : "varchar"
+        when "text"     then "text"
+        when "integer"  then "integer"
+        when "bigint"   then "bigint"
+        when "float"    then "float"
+        when "decimal"
+          if precision && scale
+            "numeric(#{precision},#{scale})"
+          elsif precision
+            "numeric(#{precision})"
+          else
+            "numeric"
+          end
+        when "boolean"  then "boolean"
+        when "datetime" then precision == false ? "datetime" : "datetime(6)"
+        when "time"     then precision == false ? "time" : "time(6)"
+        when "date"     then "date"
+        when "json", "jsonb" then "json"
+        when "uuid"     then "text"
+        when "binary"   then "blob"
+        else                 "text"
         end
-      when "boolean"  then "boolean"
-      when "datetime" then precision == false ? "timestamp" : "timestamp(6)"
-      when "time"     then precision == false ? "time" : "time(6)"
-      when "date"     then "date"
-      when "json"     then "json"
-      when "jsonb"    then "jsonb"
-      when "uuid"     then "uuid"
-      when "binary"   then "bytea"
-      else                 "text"
+      else
+        case type.to_s
+        when "string"  then limit ? "character varying(#{limit})" : "character varying"
+        when "text"    then "text"
+        when "integer" then "integer"
+        when "bigint"  then "bigint"
+        when "float"   then "double precision"
+        when "decimal"
+          if precision && scale
+            "numeric(#{precision},#{scale})"
+          elsif precision
+            "numeric(#{precision})"
+          else
+            "numeric"
+          end
+        when "boolean"  then "boolean"
+        when "datetime" then precision == false ? "timestamp" : "timestamp(6)"
+        when "time"     then precision == false ? "time" : "time(6)"
+        when "date"     then "date"
+        when "json"     then "json"
+        when "jsonb"    then "jsonb"
+        when "uuid"     then "uuid"
+        when "binary"   then "bytea"
+        else                 "text"
+        end
       end
     end
 
@@ -714,23 +901,37 @@ module ActiveRecord
     end
 
     private def ensure_schema_migrations : Nil
-      Base.connection.exec(%(CREATE TABLE IF NOT EXISTS "schema_migrations" (
-        "version" bigint NOT NULL PRIMARY KEY)))
+      if Base.sqlite?
+        # Rails sqlite3 form: version stored as varchar
+        Base.connection.exec(%(CREATE TABLE IF NOT EXISTS "schema_migrations" (
+          "version" varchar NOT NULL PRIMARY KEY)))
+      else
+        Base.connection.exec(%(CREATE TABLE IF NOT EXISTS "schema_migrations" (
+          "version" bigint NOT NULL PRIMARY KEY)))
+      end
     end
 
     private def applied?(version : Int64) : Bool
-      Base.connection.query_one?(
-        %(SELECT 1 FROM "schema_migrations" WHERE "version" = $1 LIMIT 1),
-        args: [version], as: Int32) ? true : false
+      if Base.sqlite?
+        Base.connection.query_one?(
+          %(SELECT 1 FROM "schema_migrations" WHERE "version" = ? LIMIT 1),
+          args: [version.to_s], as: Int32) ? true : false
+      else
+        Base.connection.query_one?(
+          %(SELECT 1 FROM "schema_migrations" WHERE "version" = $1 LIMIT 1),
+          args: [version], as: Int32) ? true : false
+      end
     end
 
     private def record_version(version : Int64) : Nil
+      value = Base.sqlite? ? version.to_s : version
+      ph = Base.sqlite? ? "?" : "$1"
       if @direction == :up
         Base.connection.exec(
-          %(INSERT INTO "schema_migrations" ("version") VALUES ($1)), args: [version])
+          %(INSERT INTO "schema_migrations" ("version") VALUES (#{ph})), args: [value])
       else
         Base.connection.exec(
-          %(DELETE FROM "schema_migrations" WHERE "version" = $1), args: [version])
+          %(DELETE FROM "schema_migrations" WHERE "version" = #{ph}), args: [value])
       end
     end
   end
