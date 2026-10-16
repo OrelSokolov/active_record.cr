@@ -10,7 +10,7 @@
 > - ⬜ не начато
 > - ❌ Crystal не позволит / осознанное отклонение (эквивалент указан)
 
-**Статус (2026-10-05): 283/283 спеков зелёные (oracle: crud/dirty/callbacks/
+**Статус (2026-10-16): 292/292 спеков зелёные (oracle: crud/dirty/callbacks/
 validations/associations/transactions/relation §2/persistence §6/proxy §5/
 P1-хвост/P2 (through, polymorphic, HABTM, counter_cache/touch/inverse_of,
 includes/preload, eager_load/references, optimistic locking, STI, enum/store/
@@ -195,6 +195,7 @@ Rails генерит методы атрибутов в рантайме (`defin
 | `add_check_constraint` / `remove_check_constraint` | ✅ | входит в дамп как `t.check_constraint "expr", name:` (oracle-сверено) |
 | `reversible`-блоки | ✅ | `dir.up { ... } / dir.down { ... }`; down-блок пишется в recorder как обратная операция |
 | `crails db:migrate / rollback / schema:dump` | ✅ | дампит `db/schema.cr` (primary) + `db/schema.yml` (fallback: вход кодогена моделей) |
+| `db/schema.yml` с индексами | ✅ | ключ `indexes` на таблицу (`name/columns/unique/where`; PG — `pg_indexes` c пропуском implicit PK, SQLite — `PRAGMA index_list` + `pragma_index_info` + `sqlite_master` для partial-предиката; where — в форме оракула schema.rb, с внешними скобками); кодеген атрибутов ключ игнорирует (фикстура sqlite_schema.yml с `indexes` компилируется), потребители — админка (CRUD из schema.yml, ECOSYSTEM); оракул `spec/schema_yml_spec.cr` — сверка с pg_indexes + round-trip (drop всех не-PK индексов → CREATE из YAML → повторный дамп идентичен), SQLite — `spec/sqlite_oracle_spec.cr` против sqlite3 CLI (2026-10-14) |
 | `db/schema.cr` — аналог Rails `schema.rb` | ✅ | синтаксис 1:1 с 8.1.4 (oracle/schema.rb → oracle/schema_expected.cr, байт-в-байт): `ActiveRecord::Schema[8.1].define(version:)`, `create_table ... force: :cascade`, `t.index/t.check_constraint`, `enable_extension`, `add_foreign_key`; отличия от Ruby: `require "active_record_cr"` в шапке, `default: [] of Int64` (типизированный пустой литерал); expression-дефолты (`now()`) в дамп не попадают |
 | `crails db:schema:load` | ✅ | пересоздаёт БД из `db/schema.cr` через `crystal run`-раннер (компиляция ~сек, осознанное отклонение от мгновенного `ruby db/schema.rb`); `assume_migrated_upto` проставляет версии в `schema_migrations` |
 
@@ -202,7 +203,7 @@ Rails генерит методы атрибутов в рантайме (`defin
 
 | API (Rails) | Статус | Примечание |
 |---|---|---|
-| `enum status: [...]` → `draft?/draft!` + скопы | ✅ | макрос `ar_enum` (enum — ключевое слово); геттер возвращает String (8.1, oracle-сверено); `active?/active!/Model.active/Model.statuses` |
+| `enum status: [...]` → `draft?/draft!` + скопы | ✅ | макрос `ar_enum` (enum — ключевое слово); геттер возвращает String, непромапленные значения из БД читаются как nil (8.1, oracle-сверено live-проверкой на once-campfire); int и строковые значения (`index_by(&:itself)`); невалидная строка — ArgumentError на записи (сеттер/.new/update, oracle-сверено); `active?/active!/Model.active/Model.statuses` |
 | `serialize`, `store/store_accessor`, `alias_attribute` | 🔶 | store ✅ (jsonb из коробки, `StoreProxy`-контейнер, `store :settings, accessors: [:theme]`), alias_attribute ✅ (геттер/сеттер + резолв в `where`), serialize ✅ (`serialize :settings, coder: :json` — text-колонка ↔ JSON roundtrip: ридер `JSON::Any?`, сеттер JSON::Any/Hash; `type: Array` — `Array(JSON::Any)` + Rails-дефолт `type.new` ([] для NULL/new). Отклонения: YAML-кодер (дефолт Rails) не портирован — только JSON; ivar хранит сырую JSON-строку → `attributes`/`_was` выдают её, мутация прочитанного контейнера не отслеживается — присваивай новый контейнер) |
 | `accepts_nested_attributes_for` | ✅ | has_many: отложенная запись (autosave-семантика), `allow_destroy:`, `reject_if: :all_blank`; ошибки детей всплывают как `"N posts <message>"`; belongs_to-форма ⬜. Отклонение: kwargs-значение-массив не типизируется — сеттер `model.n_posts_attributes = [...]` вызывается явно |
 | `cache_key / to_param`, `signed_id`, `has_secure_token`, `attr_readonly` | 🔶 | cache_key ✅ (`table/new`, `table/id[-ts]`), has_secure_token ✅ (24 hex), attr_readonly ✅ (молча игнорируется — oracle-сверено); to_param ⬜; signed_id ❌ (MessageVerifier вне Rails-приложения недоступен) |

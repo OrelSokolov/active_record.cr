@@ -28,6 +28,14 @@ end
 class Message < ActiveRecord::Base
 end
 
+# String-valued enum (Rails' enum :x, %w[...].index_by(&:itself), as used by
+# the campfire oracle's Membership#involvement).
+class Member < ActiveRecord::Base
+  set_table_name "rooms"
+  ar_enum :involvement, {invisible: "invisible", nothing: "nothing",
+                         mentions: "mentions", everything: "everything"}
+end
+
 # sqlite3 CLI oracle: first column of the first row, or all rows joined.
 module Oracle
   def self.cli(sql : String) : String
@@ -54,6 +62,7 @@ describe "ActiveRecord SQLite adapter (oracle: sqlite3 CLI)" do
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         kind VARCHAR NOT NULL DEFAULT 'open',
+        involvement VARCHAR DEFAULT 'mentions',
         archived BOOLEAN NOT NULL DEFAULT 0,
         created_at DATETIME,
         updated_at DATETIME
@@ -82,9 +91,9 @@ describe "ActiveRecord SQLite adapter (oracle: sqlite3 CLI)" do
 
   describe "connection pragmas (Rails 8 set)" do
     # journal_mode is persisted in the database file, so the independent
-    # CLI connection sees it; synchronous/busy_timeout/foreign_keys/
-    # journal_size_limit are per-connection and must be read back through
-    # ActiveRecord's own pooled connection.
+    # CLI connection sees it; synchronous/foreign_keys/journal_size_limit
+    # are per-connection and must be read back through ActiveRecord's own
+    # pooled connection.
     it "enables WAL journal mode" do
       Oracle.cli("PRAGMA journal_mode;").should eq("wal")
     end
@@ -94,9 +103,13 @@ describe "ActiveRecord SQLite adapter (oracle: sqlite3 CLI)" do
         .should eq(1_i64)
     end
 
-    it "sets busy_timeout=5000ms" do
+    it "installs the fair busy handler over busy_timeout (0.1.4+)" do
+      # configure_adapter runs PRAGMA busy_timeout first, then FairBusy
+      # replaces that handler with uniform 500µs retries — sqlite resets
+      # the timeout to 0 once a custom busy handler is installed, so 0
+      # here PROVES the fair handler is the active one.
       ActiveRecord::Base.connection.query_one("PRAGMA busy_timeout", as: Int64)
-        .should eq(5000_i64)
+        .should eq(0_i64)
     end
 
     it "sets journal_size_limit=64MB" do
@@ -198,6 +211,44 @@ describe "ActiveRecord SQLite adapter (oracle: sqlite3 CLI)" do
     end
   end
 
+  describe "string-valued enum (oracle: Membership#involvement)" do
+    it "accepts valid values through .new and the setter" do
+      m = Member.new(name: "enum1", kind: "open", involvement: "mentions")
+      m.involvement.should eq("mentions")
+      m.involvement = :everything
+      m.involvement.should eq("everything")
+    end
+
+    it "raises ArgumentError on invalid values (setter, .new, update)" do
+      expect_raises(ArgumentError) do
+        Member.new(name: "enum2", kind: "open", involvement: "member")
+      end
+      m = Member.new(name: "enum3", kind: "open")
+      expect_raises(ArgumentError) { m.involvement = "member" }
+      expect_raises(ArgumentError) { m.assign_attributes({"involvement" => "member"}) }
+    end
+
+    it "round-trips through the database and scopes by value" do
+      m = Member.new(name: "enum4", kind: "open", involvement: "everything").tap(&.save!)
+      Member.find(m.id.not_nil!).involvement.should eq("everything")
+      Member.everything.where("name = 'enum4'").count.should eq(1)
+      m.everything?.should be_true
+    end
+
+    it "reads legacy junk rows as nil (oracle-verified, no raise)" do
+      conn = ActiveRecord::Base.connection
+      conn.exec("INSERT INTO rooms (name, kind, involvement) VALUES ('enum5', 'open', 'member')")
+      junk = Member.all.where("name = 'enum5'").first.not_nil!
+      junk.involvement.should be_nil
+    end
+
+    it "exposes the value mapping" do
+      Member.involvements.should eq({
+        "invisible" => "invisible", "nothing" => "nothing",
+        "mentions"  => "mentions",  "everything" => "everything"})
+    end
+  end
+
   describe "schema introspection (schema.yml for codegen)" do
     it "dumps tables with normalized udt types" do
       path = File.join(Dir.tempdir, "crails_ar_sqlite_schema_#{Process.pid}.yml")
@@ -218,6 +269,42 @@ describe "ActiveRecord SQLite adapter (oracle: sqlite3 CLI)" do
         messages.should contain({"room_id", "int4"})
         messages.should contain({"body", "text"})
         messages.should contain({"client_message_id", "varchar"})
+      ensure
+        FileUtils.rm_f(path)
+      end
+    end
+
+    it "dumps indexes with unique/where (oracle: sqlite3 CLI)" do
+      conn = ActiveRecord::Base.connection
+      conn.exec(%(CREATE INDEX "index_messages_on_room_id" ON "messages" ("room_id")))
+      conn.exec(%(CREATE UNIQUE INDEX "index_messages_on_client_message_id" ON "messages" ("client_message_id")))
+      conn.exec(%(CREATE INDEX "index_messages_on_pinned" ON "messages" ("pinned") WHERE pinned = 1))
+
+      path = File.join(Dir.tempdir, "crails_ar_sqlite_schema_#{Process.pid}.yml")
+      begin
+        ActiveRecord::SchemaDumper.dump_to_file(path)
+        yaml = YAML.parse(File.read(path))
+
+        # CLI oracle: PRAGMA index_list rows (seq|name|unique|origin|partial)
+        # for the dumped names/uniques; origin 'pk' would be an implicit PK
+        cli = Oracle.rows("PRAGMA index_list(messages);")
+               .map(&.[](1..2)) # name, unique flag
+               .to_h
+        dumped = yaml["messages"]["indexes"].as_a.map { |i|
+          {i["name"].as_s, i["unique"].as_bool ? "1" : "0"}
+        }.to_h
+        dumped.should eq(cli)
+
+        # partial-index predicate straight from sqlite_master via the CLI
+        sql = Oracle.cli(
+          %(SELECT sql FROM sqlite_master WHERE name = 'index_messages_on_pinned';))
+        where = yaml["messages"]["indexes"].as_a
+          .find { |i| i["name"].as_s == "index_messages_on_pinned" }
+          .not_nil!["where"].as_s
+        sql.should contain("WHERE #{where}")
+
+        # rooms has no indexes → no indexes key at all (schema.rb-style)
+        yaml["rooms"]["indexes"]?.should be_nil
       ensure
         FileUtils.rm_f(path)
       end

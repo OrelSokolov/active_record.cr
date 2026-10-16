@@ -149,9 +149,12 @@ module ActiveRecord
 
     # enum :status, {draft: 0, active: 1} — Ruby's `enum` is a keyword in
     # Crystal, hence the ar_ prefix. Rails 8.1 semantics: the getter
-    # returns a String, `status=` accepts String/Symbol/Int, `active?`
-    # predicates, `active!` save-bangs, `Model.active` scope,
-    # `Model.statuses` mapping.
+    # returns a String (unmapped DB values read as nil, oracle-verified),
+    # `status=` accepts String/Symbol/Int, `active?` predicates, `active!`
+    # save-bangs, `Model.active` scope, `Model.statuses` mapping. Values
+    # may be ints or strings (Rails' %w[...].index_by(&:itself)); invalid
+    # string values raise ArgumentError on write — setter, .new and update
+    # (string-valued enums) alike, matching the oracle.
     macro ar_enum(name, values)
       {% ActiveRecord::ENUMS << {@type.name.stringify, name.id.stringify, values} %}
     end
@@ -382,6 +385,11 @@ module ActiveRecord
         {% end %}
         {% if enum_col %}
           # enum reader generated separately (Rails 8.1: String getters)
+          # raw assignment bypassing the validating setter (row loading) —
+          # oracle: junk DB values READ as nil, they don't raise on load
+          def __assign_raw_{{c[0].id}}(value : {{c[1].id}}?) : Nil
+            @{{c[0].id}} = value
+          end
         {% elsif store_col %}
           def {{c[0].id}} : ::ActiveRecord::StoreProxy?
             @{{c[0].id}}.try { |v| ::ActiveRecord::StoreProxy.new(v.as_h) }
@@ -471,8 +479,23 @@ module ActiveRecord
             {% for e in ActiveRecord::ENCRYPTED %}
               {% if e[0] == @type.name.stringify && e[1] == c[0] %}{% enc_init = true %}{% end %}
             {% end %}
+            # string-valued enum columns validate through the setter —
+            # Rails raises ArgumentError on Model.new(enum_col: "junk");
+            # nil assigns directly (nullable column, Rails allows nil)
+            {% enum_init = false %}
+            {% for e in ActiveRecord::ENUMS %}
+              {% if e[0] == @type.name.stringify && e[1] == c[0] %}
+                {% enum_init = e[2].values.first.is_a?(StringLiteral) %}
+              {% end %}
+            {% end %}
             # encrypted columns go through the encrypting setter
-            {% if enc_init %}self.{{c[0].id}} = {{c[0].id}};{% else %}@{{c[0].id}} = {{c[0].id}};{% end %}
+            {% if enc_init %}self.{{c[0].id}} = {{c[0].id}};{% elsif enum_init %}
+              if (ev = {{c[0].id}})
+                self.{{c[0].id}} = ev
+              else
+                @{{c[0].id}} = nil
+              end
+            {% else %}@{{c[0].id}} = {{c[0].id}};{% end %}
           {% end %}
           {% if has_type && @type.superclass.stringify != "ActiveRecord::Base" %}
             @type = {{ @type.name.split("::").last }} if @type.nil?
@@ -501,9 +524,15 @@ module ActiveRecord
                 {% for e in ActiveRecord::ENCRYPTED %}
                   {% if e[0] == @type.name.stringify && e[1] == c[0] %}{% enc_read = true %}{% end %}
                 {% end %}
+                {% enum_read = false %}
+                {% for e in ActiveRecord::ENUMS %}
+                  {% if e[0] == @type.name.stringify && e[1] == c[0] %}{% enum_read = true %}{% end %}
+                {% end %}
                 # encrypted columns: load the ciphertext straight into the
-                # ivar (the setter would re-encrypt it)
-                {% if enc_read %}
+                # ivar (the setter would re-encrypt it); enum columns: load
+                # raw too (the setter would raise on junk values — oracle
+                # reads those back as nil)
+                {% if enc_read || enum_read %}
                   record.__assign_raw_{{c[0].id}}(rs.read({{c[1].id}}?))
                 {% else %}
                   record.{{c[0].id}} = rs.read({{c[1].id}}?)
@@ -573,9 +602,23 @@ module ActiveRecord
             {% for e in ActiveRecord::ENCRYPTED %}
               {% if e[0] == @type.name.stringify && e[1] == c[0] %}{% enc_assign = true %}{% end %}
             {% end %}
+            # string-valued enum columns validate through the setter
+            {% enum_assign = false %}
+            {% for e in ActiveRecord::ENUMS %}
+              {% if e[0] == @type.name.stringify && e[1] == c[0] %}
+                {% enum_assign = e[2].values.first.is_a?(StringLiteral) %}
+              {% end %}
+            {% end %}
             # encrypted columns go through the encrypting setter
             {% if enc_assign %}
             when {{c[0]}} then self.{{c[0].id}} = value.as?(String)
+            {% elsif enum_assign %}
+            when {{c[0]}} then
+              if (ev = value.as?(String))
+                self.{{c[0].id}} = ev
+              else
+                @{{c[0].id}} = nil
+              end
             {% else %}
             when {{c[0]}} then @{{c[0].id}} = value.as?({{c[1].id}})
             {% end %}
@@ -1133,7 +1176,9 @@ module ActiveRecord
                 {% for k, v in e[2] %}
                 when {{v}} then {{k.stringify}}
                 {% end %}
-                else v.to_s
+                # unmapped DB values read as nil (oracle-verified Rails 8.1:
+                # junk enum rows don't raise on load)
+                else nil
                 end
               end
 
@@ -1151,8 +1196,11 @@ module ActiveRecord
                 self.{{e[1].id}} = value.to_s
               end
 
-              def self.{{(e[1].id.stringify + (e[1].id.stringify.ends_with?("s") ? "es" : "s")).id}} : Hash(String, Int64)
-                { {% for k, v in e[2] %}{{k.stringify}} => {{v}}_i64, {% end %} }
+              # String-valued enums (Rails' %w[...].index_by(&:itself)) map
+              # key => string; int enums keep the Int64 mapping.
+              {% int_vals = e[2].values.first.is_a?(NumberLiteral) %}
+              def self.{{(e[1].id.stringify + (e[1].id.stringify.ends_with?("s") ? "es" : "s")).id}} : Hash(String, {{ (int_vals ? "Int64" : "String").id }})
+                { {% for k, v in e[2] %}{{k.stringify}} => {{ int_vals ? "#{v}_i64".id : v }}, {% end %} }
               end
 
               {% for k, v in e[2] %}

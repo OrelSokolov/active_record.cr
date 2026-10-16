@@ -190,14 +190,42 @@ module ActiveRecord
 
     # --- db/schema.yml (fallback: model codegen input) ------------------------
 
-    def self.dump_to_file(path : String = "db/schema.yml") : Int32
-      rows = Base.sqlite? ? sqlite_rows : postgres_rows
+    # A dumped index: everything needed to rebuild it (the admin/CRUD-from-
+    # schema.yml consumer reads these; attribute codegen ignores the key).
+    struct IndexDef
+      getter name : String
+      getter columns : Array(String)
+      getter unique : Bool
+      getter where : String?
 
-      tables = {} of String => Hash(String, Array(Hash(String, String?)))
+      def initialize(@name, @columns, @unique, @where)
+      end
+
+      def to_h : Hash(String, Array(String) | Bool | String?)
+        {"name" => @name, "columns" => @columns, "unique" => @unique,
+         "where" => @where}
+      end
+    end
+
+    def self.dump_to_file(path : String = "db/schema.yml") : Int32
+      sqlite = Base.sqlite?
+      rows = sqlite ? sqlite_rows : postgres_rows
+      indexes = sqlite ? sqlite_indexes : postgres_indexes
+
+      columns = {} of String => Array(Hash(String, String?))
       rows.each do |(table, column, udt, nullable, default)|
         entry = {"name" => column, "type" => udt, "nullable" => nullable, "default" => default}
-        tables[table] ||= {"columns" => [] of Hash(String, String?)}
-        tables[table]["columns"] << entry
+        (columns[table] ||= [] of Hash(String, String?)) << entry
+      end
+
+      tables = {} of String => Hash(String, Array(Hash(String, String?)) | Array(Hash(String, Array(String) | Bool | String?)))
+      columns.each do |table, cols|
+        entry = {} of String => Array(Hash(String, String?)) | Array(Hash(String, Array(String) | Bool | String?))
+        entry["columns"] = cols
+        if idx = indexes[table]?
+          entry["indexes"] = idx.map(&.to_h)
+        end
+        tables[table] = entry
       end
 
       Dir.mkdir_p(File.dirname(path)) unless File.dirname(path) == "."
@@ -205,23 +233,95 @@ module ActiveRecord
       tables.size
     end
 
+    # Index inventory (both adapters skip the implicit PK index; unique-
+    # constraint-backed indexes ARE included, matching dump_cr/pg_indexes).
+    def self.postgres_indexes : Hash(String, Array(IndexDef))
+      conn = Base.connection
+      pk = conn.query_all(<<-SQL, as: {String, String}).to_h
+        SELECT c.relname AS tbl, i.relname AS idx
+        FROM pg_index x
+        JOIN pg_class c ON c.oid = x.indrelid
+        JOIN pg_class i ON i.oid = x.indexrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE x.indisprimary AND n.nspname = 'public'
+      SQL
+      result = {} of String => Array(IndexDef)
+      conn.query_all(<<-SQL, as: {String, String, String})
+        SELECT tablename, indexname, indexdef
+        FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename NOT IN ('schema_migrations', 'ar_internal_metadata')
+        ORDER BY tablename, indexname
+      SQL
+        .each do |(table, iname, idef)|
+          next if pk[table]? == iname
+          parsed = parse_index_columns(idef)
+          next unless parsed
+          (result[table] ||= [] of IndexDef) <<
+            IndexDef.new(iname, parsed[0], idef.starts_with?("CREATE UNIQUE INDEX"), parsed[1])
+        end
+      result
+    end
+
+    def self.sqlite_indexes : Hash(String, Array(IndexDef))
+      conn = Base.connection
+      result = {} of String => Array(IndexDef)
+      sqlite_table_names.each do |table|
+        # collect first, then introspect per index (no nested result sets)
+        listed = [] of {String, Bool, String, Bool}
+        conn.query("PRAGMA index_list(#{quote_ident_sqlite(table)})") do |rs|
+          rs.each do
+            rs.read(Int32)            # seq
+            iname = rs.read(String)
+            unique = rs.read(Int64) == 1_i64
+            origin = rs.read(String)  # c = CREATE INDEX, u = UNIQUE constraint, pk
+            partial = rs.read(Int64) == 1_i64
+            listed << {iname, unique, origin, partial}
+          end
+        end
+        listed.reject { |(_, _, origin, _)| origin == "pk" }.each do |(iname, unique, _origin, partial)|
+          # auto-indexes (UNIQUE constraints) have no sqlite_master entry;
+          # expression components come back unnamed (NULL) — kept as ""
+          # (pragma_index_info table function → the name column only)
+          cols = conn.query_all(
+            %(SELECT name FROM pragma_index_info(#{sql_literal(iname)})),
+            as: String?).map(&.to_s)
+          where = nil
+          if partial
+            sql = conn.query_one?(
+              %(SELECT sql FROM sqlite_master WHERE type = 'index' AND name = #{sql_literal(iname)}),
+              as: String)
+            if sql && (m = sql.match(/\)\s+WHERE\s+(.+)\z/im))
+              where = m[1]
+            end
+          end
+          (result[table] ||= [] of IndexDef) << IndexDef.new(iname, cols, unique, where)
+        end
+      end
+      result
+    end
+
     # SQLite introspection: sqlite_master + PRAGMA table_info, with declared
     # types normalized to the PostgreSQL udt names the codegen understands
     # (crystal_type/rails_type in codegen_runner.cr stay untouched).
     # FTS5 shadow tables (<vt>_data/_idx/_content/_docsize/_config) are
     # skipped by excluding every table shadowing a virtual table.
-    def self.sqlite_rows : Array({String, String, String, String, String?})
+    def self.sqlite_table_names : Array(String)
       conn = Base.connection
       virtual = conn.query_all(
         "SELECT name FROM sqlite_master WHERE type = 'table' " \
         "AND sql LIKE 'CREATE VIRTUAL TABLE%'", as: String)
       shadows = ->(name : String) { virtual.any? { |vt| name == vt || name.starts_with?("#{vt}_") } }
-      tables = conn.query_all(
+      conn.query_all(
         "SELECT name FROM sqlite_master WHERE type = 'table' " \
         "AND name NOT LIKE 'sqlite_%' ORDER BY name", as: String)
         .reject { |name| shadows.call(name) }
+    end
+
+    def self.sqlite_rows : Array({String, String, String, String, String?})
+      conn = Base.connection
       rows = [] of {String, String, String, String, String?}
-      tables.each do |table|
+      sqlite_table_names.each do |table|
         conn.query("PRAGMA table_info(#{quote_ident_sqlite(table)})") do |rs|
           rs.each do
             rs.read(Int32)                                  # cid
@@ -259,6 +359,10 @@ module ActiveRecord
 
     def self.quote_ident_sqlite(name : String) : String
       %("#{name.gsub('"', %("""))}")
+    end
+
+    def self.sql_literal(value : String) : String
+      "'#{value.gsub("'", "''")}'"
     end
 
     def self.postgres_rows : Array({String, String, String, String, String?})
@@ -333,14 +437,23 @@ module ActiveRecord
     end
 
     def self.index_line(name : String, indexdef : String) : String
+      parsed = parse_index_columns(indexdef)
+      return "" unless parsed
+      cols, where = parsed
       unique = indexdef.starts_with?("CREATE UNIQUE INDEX")
-      m = indexdef.match(/ USING \w+ \((.+?)\)(?: WHERE (.+))?\z/)
-      return "" unless m
-      cols = m[1].split(", ").map { |c| unquote(c) }
       parts = ["name: #{name.inspect}"]
       parts << "unique: true" if unique
-      parts << "where: #{m[2].inspect}" if m[2]?
+      parts << "where: #{where.inspect}" if where
       %(    t.index [#{cols.map(&.inspect).join(", ")}], #{parts.join(", ")}\n)
+    end
+
+    # indexdef "CREATE [UNIQUE] INDEX … USING am (cols) [WHERE pred]" →
+    # {unquoted column list, raw predicate (outer parens kept — the exact
+    # form the Rails 8.1 schema.rb oracle emits)}.
+    def self.parse_index_columns(indexdef : String) : {Array(String), String?}?
+      m = indexdef.match(/ USING \w+ \((.+?)\)(?: WHERE (.+))?\z/)
+      return nil unless m
+      {m[1].split(", ").map { |c| unquote(c) }, m[2]?}
     end
 
     def self.fk_line(from : String, name : String, defn : String) : String

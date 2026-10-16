@@ -3,7 +3,7 @@
 A Crystal port of Rails **ActiveRecord 8.1.4** for PostgreSQL — models,
 Relation querying, validations, callbacks, associations, transactions,
 migrations, schema dumping, STI, enums/stores and ActiveRecord::Encryption.
-Namespace `ActiveRecord` mirrors the original 1:1. Status: **283/283
+Namespace `ActiveRecord` mirrors the original 1:1. Status: **292/292
 oracle specs green** (crud/dirty/callbacks/validations/associations/
 transactions/persistence/proxy, through + polymorphic + HABTM +
 counter_cache/touch/inverse_of, includes/preload/eager_load, optimistic
@@ -140,14 +140,14 @@ crystal run examples/datalake_read.cr
 | Feature | Original | Port | Status |
 |---|---|---|---|
 | `create_table` (all types, `timestamps, references, index`), `id: false`, column ops, `add_index (unique:, name:, where:)`, `add_reference`, FKs, `execute`, reversible `change` / up-down, `change_table`, `create_join_table`, check constraints, `reversible` blocks | ✅ | Same; partial indexes oracle-verified via dumps | ✅ |
-| `crails db:migrate / rollback / schema:dump / schema:load` | ✅ | Dumps `db/schema.cr` (primary) + `db/schema.yml` (codegen input); schema:load recompiles a runner (~1 s, deliberate deviation from instant `ruby db/schema.rb`) | 🔶 |
+| `crails db:migrate / rollback / schema:dump / schema:load` | ✅ | Dumps `db/schema.cr` (primary) + `db/schema.yml` (codegen input; columns + `indexes` with `name/columns/unique/where`, implicit PK skipped); schema:load recompiles a runner (~1 s, deliberate deviation from instant `ruby db/schema.rb`) | 🔶 |
 | `db/schema.cr` ↔ `schema.rb` | ✅ | Byte-identical syntax to 8.1.4 (`ActiveRecord::Schema[8.1].define`, `force: :cascade`, `t.index`, `t.check_constraint`, `enable_extension`, `add_foreign_key`); differences: `require "active_record_cr"` header, typed empty literals (`[] of Int64`); expression defaults (`now()`) are not dumped | 🔶 |
 
 ### Enums, stores, STI, misc
 
 | Feature | Original | Port | Status |
 |---|---|---|---|
-| `enum status: [...]` → predicates/bang-methods/scopes | ✅ | Macro `ar_enum` (`enum` is a keyword); getter returns String (8.1, oracle-verified) | ✅ |
+| `enum status: [...]` → predicates/bang-methods/scopes | ✅ | Macro `ar_enum` (`enum` is a keyword); getter returns String, unmapped DB values read as nil (8.1, oracle-verified); int and string values (`index_by(&:itself)`) | ✅ |
 | `store / store_accessor` | ✅ | jsonb out of the box, `StoreProxy` container | ✅ |
 | `serialize` | ✅ | JSON coder only (Rails' YAML default not ported); text column ↔ JSON roundtrip; mutating a read container is not tracked — assign a new one | 🔶 |
 | `alias_attribute` | ✅ | Getter/setter + `where` resolution | ✅ |

@@ -13,6 +13,10 @@ rooms:
     type: varchar
     nullable: 'NO'
     default: '''open'''
+  - name: involvement
+    type: varchar
+    nullable: 'YES'
+    default: '''mentions'''
   - name: archived
     type: bool
     nullable: 'NO'
@@ -25,6 +29,14 @@ rooms:
     type: timestamp
     nullable: 'YES'
     default:
+  # indexes are consumed by admin/CRUD tooling, NOT by attribute codegen —
+  # this key proves the codegen ignores it (backward compatibility)
+  indexes:
+  - name: index_rooms_on_name
+    columns:
+    - name
+    unique: false
+    where:
 messages:
   columns:
   - name: id
