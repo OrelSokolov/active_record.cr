@@ -534,6 +534,11 @@ module ActiveRecord
                 # reads those back as nil)
                 {% if enc_read || enum_read %}
                   record.__assign_raw_{{c[0].id}}(rs.read({{c[1].id}}?))
+                {% elsif c[1] == "JSON::Any" %}
+                  # json/jsonb columns: pg decodes to JSON::Any natively,
+                  # SQLite returns TEXT — normalize both (a NULL stays nil)
+                  record.{{c[0].id}} = rs.read(String | JSON::Any | Nil)
+                    .try { |v| v.as?(JSON::Any) || JSON::Any.from_json(v.to_s) }
                 {% else %}
                   record.{{c[0].id}} = rs.read({{c[1].id}}?)
                 {% end %}

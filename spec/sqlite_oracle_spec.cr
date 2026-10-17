@@ -62,6 +62,7 @@ describe "ActiveRecord SQLite adapter (oracle: sqlite3 CLI)" do
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         kind VARCHAR NOT NULL DEFAULT 'open',
+        settings JSON,
         involvement VARCHAR DEFAULT 'mentions',
         archived BOOLEAN NOT NULL DEFAULT 0,
         created_at DATETIME,
@@ -158,6 +159,22 @@ describe "ActiveRecord SQLite adapter (oracle: sqlite3 CLI)" do
       Message.find(msg.id.not_nil!).pinned?.should be_true
       msg.update!({"pinned" => false})
       Oracle.cli("SELECT pinned FROM messages WHERE id = #{msg.id};").should eq("0")
+    end
+
+    it "round-trips json columns (SQLite stores TEXT, reads as JSON::Any)" do
+      room = Room.new(name: "JsonRoom", kind: "open").tap(&.save!)
+      room.settings = JSON::Any.from_json(%({"restrict_room_creation_to_administrators":true}))
+      room.save!
+      Oracle.cli("SELECT settings FROM rooms WHERE id = #{room.id};")
+        .should eq(%({"restrict_room_creation_to_administrators":true}))
+      # re-read: TEXT column must decode to JSON::Any, not String
+      reloaded = Room.find(room.id.not_nil!)
+      reloaded.settings.should be_a(JSON::Any)
+      reloaded.settings.try(&.["restrict_room_creation_to_administrators"].as_bool).should be_true
+      # rewrite replaces the whole document
+      reloaded.settings = JSON::Any.from_json(%({"other":"x"}))
+      reloaded.save!
+      Room.find(room.id.not_nil!).settings.try(&.["other"].as_s).should eq("x")
     end
 
     it "updates rows the CLI can see" do

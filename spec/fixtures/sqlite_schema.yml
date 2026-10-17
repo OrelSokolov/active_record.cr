@@ -13,6 +13,10 @@ rooms:
     type: varchar
     nullable: 'NO'
     default: '''open'''
+  - name: settings
+    type: json
+    nullable: 'YES'
+    default:
   - name: involvement
     type: varchar
     nullable: 'YES'
