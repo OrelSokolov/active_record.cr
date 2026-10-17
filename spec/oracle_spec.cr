@@ -639,6 +639,7 @@ end
 
 # --- misc write API --------------------------------------------------------
 cases["misc_exists"] = -> { r(Post.exists?(1)) }
+cases["misc_any"] = -> { r("#{Post.any?} #{Post.where(title: "zzz").any?} #{Post.none.any?}") }
 cases["misc_count"]  = -> { r(Post.count) }
 cases["misc_first_or_create"] = -> do
   p = Post.where(title: "first_or_create").first_or_create({"views" => 0_i64})

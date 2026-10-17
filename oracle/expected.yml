@@ -70,6 +70,7 @@ assoc_has_one_replace	raise:ActiveRecord::RecordNotUnique
 assoc_has_one_dependent	"0"
 assoc_belongs_to_required	"true A[]"
 misc_exists	true
+misc_any	"true false false"
 misc_count	10
 misc_first_or_create	"false  \"first_or_create\""
 misc_first_or_create_twice	true

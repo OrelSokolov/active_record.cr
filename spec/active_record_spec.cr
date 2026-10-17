@@ -127,12 +127,15 @@ describe "ActiveRecord read API (fixtures)" do
   end
 
   describe "aggregates" do
-    it "count / exists? / empty?" do
+    it "count / exists? / empty? / any?" do
       Post.count.should eq(5)
       Comment.count.should eq(8)
       Post.exists?.should be_true
       Post.where(title: "zzz").exists?.should be_false
       Post.where(title: "zzz").empty?.should be_true
+      Post.any?.should be_true
+      Post.where(title: "zzz").any?.should be_false
+      Post.none.any?.should be_false
     end
 
     it "pluck / pick / ids" do

@@ -619,6 +619,12 @@ module ActiveRecord
       !exists?
     end
 
+    # Rails ActiveRecord::Relation#any? — without a block it's !empty?
+    # (an EXISTS probe), not an Enumerable load.
+    def any? : Bool
+      !empty?
+    end
+
     def exists? : Bool
       return false if @none_flag
       sql, args = build_sql("1", [] of String, limit_override: 1_i64)

@@ -829,6 +829,10 @@ module ActiveRecord
             all.exists?
           end
 
+          def self.any? : Bool
+            all.any?
+          end
+
           def self.exists?(id : Int64 | Int32) : Bool
             all.where(%("#{primary_key}" = ?), id.to_i64).exists?
           end

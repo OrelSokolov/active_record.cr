@@ -365,6 +365,9 @@ end
 
 # --- misc write API -----------------------------------------------------
 case_run("misc_exists")  { Post.exists?(1) }
+case_run("misc_any") do
+  "#{Post.any?} #{Post.where(title: "zzz").any?} #{Post.none.any?}"
+end
 case_msg = ActiveRecord::Base.connection.execute("SELECT count(*) AS n FROM posts").first["n"]
 case_run("misc_count")   { Post.count }
 case_run("misc_first_or_create") do
