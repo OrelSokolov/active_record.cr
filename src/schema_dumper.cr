@@ -193,10 +193,10 @@ module ActiveRecord
     # A dumped index: everything needed to rebuild it (the admin/CRUD-from-
     # schema.yml consumer reads these; attribute codegen ignores the key).
     struct IndexDef
-      getter name : String
-      getter columns : Array(String)
-      getter unique : Bool
-      getter where : String?
+      attr_reader name : String
+      attr_reader columns : Array(String)
+      attr_reader unique : Bool
+      attr_reader where : String?
 
       def initialize(@name, @columns, @unique, @where)
       end

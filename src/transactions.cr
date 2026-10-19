@@ -33,10 +33,10 @@ module ActiveRecord
     # Records mutated inside the transaction: {record, event} pairs, fired
     # as after_commit/after_rollback at COMMIT/ROLLBACK time.
     class TxContext
-      getter fiber : Fiber
-      getter conn : DB::Connection
-      getter records = [] of Tuple(Base, Symbol)
-      property depth = 0
+      attr_reader fiber : Fiber
+      attr_reader conn : DB::Connection
+      attr_reader records = [] of Tuple(Base, Symbol)
+      attr_accessor depth = 0
 
       def initialize(@fiber, @conn)
       end

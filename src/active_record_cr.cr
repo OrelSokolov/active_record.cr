@@ -20,6 +20,7 @@ require "./persistence"
 require "./migrations"
 require "./schema"
 require "./schema_dumper"
+require "attr_reader_cr"
 
 module ActiveRecord
   VERSION = "0.1.0"

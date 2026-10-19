@@ -10,7 +10,7 @@ module ActiveRecord
   end
 
   class RecordInvalid < Exception
-    getter record
+    attr_reader :record
 
     def initialize(@record : Base)
       super("Validation failed: #{@record.errors.full_messages.join(", ")}")
@@ -308,7 +308,7 @@ module ActiveRecord
       {% end %}
     end
 
-    property id : Int64?
+    attr_accessor id : Int64?
     property? new_record = true
     property? destroyed = false
     # Set on records materialized from Relation#readonly / #strict_loading.
@@ -316,7 +316,7 @@ module ActiveRecord
     property? strict_loading = false
 
     # Errors from the last validation run (see validations.cr).
-    property errors = Errors.new
+    attr_accessor errors = Errors.new
 
     @original_attributes : Hash(String, Value)?
     @previous_changes : Hash(String, Tuple(Value, Value)) = {} of String => Tuple(Value, Value)

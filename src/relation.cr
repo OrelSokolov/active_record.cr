@@ -5,7 +5,7 @@ module ActiveRecord
   struct Relation(T)
     include Enumerable(T)
 
-    getter model : T.class
+    attr_reader model : T.class
 
     @wheres = [] of String
     @args = [] of DB::Any

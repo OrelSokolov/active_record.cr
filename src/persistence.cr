@@ -489,11 +489,11 @@ module ActiveRecord
 
   class Errors
     struct Error
-      getter attribute : String
-      getter type : Symbol
-      getter message : String?
+      attr_reader attribute : String
+      attr_reader type : Symbol
+      attr_reader message : String?
       getter? strict : Bool
-      getter detail_value : Value?
+      attr_reader detail_value : Value?
 
       def initialize(@attribute, @type, @message = nil, @strict = false, @detail_value = nil)
       end

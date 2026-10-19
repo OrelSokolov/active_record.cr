@@ -23,7 +23,7 @@ module ActiveRecord
   end
 
   class Migration
-    property version : Int64?
+    attr_accessor version : Int64?
 
     def initialize(@version : Int64? = nil)
     end
@@ -81,13 +81,13 @@ module ActiveRecord
 
     # --- table definition DSL (create_table block) ------------------------
     class TableDefinition
-      getter columns = [] of Column
-      getter indexes = [] of Index
-      getter foreign_keys = [] of ForeignKey
-      getter check_constraints = [] of CheckConstraint
+      attr_reader columns = [] of Column
+      attr_reader indexes = [] of Index
+      attr_reader foreign_keys = [] of ForeignKey
+      attr_reader check_constraints = [] of CheckConstraint
 
       struct Column
-        getter name, sql_type, default, null
+        attr_reader :name, :sql_type, :default, :null
 
         # Int32/Float32 widen the Value union so that schema.cr literals
         # dumped from the database (`default: 5`) compile without _i64 suffixes.
@@ -120,7 +120,7 @@ module ActiveRecord
       end
 
       struct Index
-        getter name, columns, unique, where
+        attr_reader :name, :columns, :unique, :where
 
         def initialize(@name : String, @columns : Array(String), @unique : Bool,
                        @where : String? = nil)
@@ -128,14 +128,14 @@ module ActiveRecord
       end
 
       struct ForeignKey
-        getter column, to_table, name
+        attr_reader :column, :to_table, :name
 
         def initialize(@column : String, @to_table : String, @name : String)
         end
       end
 
       struct CheckConstraint
-        getter expression, name
+        attr_reader :expression, :name
 
         def initialize(@expression : String, @name : String)
         end

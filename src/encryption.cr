@@ -111,7 +111,7 @@ module ActiveRecord
     class Properties
       alias Value = Bytes | Int64 | Bool | Nil
 
-      getter data = {} of String => Value
+      attr_reader data = {} of String => Value
 
       def []=(key : String, value : Value) : Nil
         if @data.has_key?(key)
@@ -164,8 +164,8 @@ module ActiveRecord
 
     # An encrypted payload + unencrypted headers.
     class Message
-      property payload : Bytes
-      property headers : Properties
+      attr_accessor payload : Bytes
+      attr_accessor headers : Properties
 
       def initialize(payload : Bytes? = nil)
         @payload = payload || Bytes.new(0)
@@ -234,7 +234,7 @@ module ActiveRecord
     # A key is a container for a secret (+ public tags in the gem; the port
     # stores none — envelope encryption is out of scope).
     class Key
-      getter secret : Bytes
+      attr_reader secret : Bytes
 
       def initialize(@secret : Bytes)
       end
@@ -251,7 +251,7 @@ module ActiveRecord
     # A KeyProvider serving derivation keys (all passwords decrypt, the
     # first one encrypts).
     class DerivedSecretKeyProvider
-      getter keys : Array(Key)
+      attr_reader keys : Array(Key)
 
       def initialize(passwords : Array(String))
         @keys = passwords.map { |p| Key.new(KeyGenerator.derive_key_from(p)) }
@@ -416,7 +416,7 @@ module ActiveRecord
       property? deterministic : Bool
       property? downcase : Bool
       property? support_unencrypted_data : Bool
-      property key : String?
+      attr_accessor key : String?
 
       def initialize(@deterministic = false, @downcase = false,
                      @support_unencrypted_data = false, @key = nil)

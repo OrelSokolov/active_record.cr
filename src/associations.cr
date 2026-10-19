@@ -22,9 +22,9 @@ module ActiveRecord
   struct CollectionProxy(T)
     include Enumerable(T)
 
-    getter owner_id : Int64?
-    getter foreign_key : String
-    getter model : T.class
+    attr_reader owner_id : Int64?
+    attr_reader foreign_key : String
+    attr_reader model : T.class
 
     # through / polymorphic / HABTM proxies wrap a preset scope.
     @preset : Relation(T)? = nil
