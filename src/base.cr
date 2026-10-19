@@ -274,10 +274,25 @@ module ActiveRecord
     #   scope :with_views_gt do |n|
     #     where("views > ?", n)
     #   end
-    macro scope(name, &block)
-      def self.{{name.id}}({{ block.args.splat }})
-        {{ block.body }}
-      end
+    #
+    # Rails lambda form is also accepted (the ProcLiteral is decomposed by
+    # the macro, so parameter type annotations are not required — the proc
+    # itself is never compiled):
+    #   scope :ordered, -> { order(:created_at) }
+    #   scope :with_views_gt, ->(n) { where("views > ?", n) }
+    macro scope(name, lambda = nil, &block)
+      {% if lambda %}
+        {% unless lambda.is_a?(ProcLiteral) %}
+          {% raise "scope #{name}: expected a -> {} lambda, got #{lambda.class_name}" %}
+        {% end %}
+        def self.{{name.id}}({{ lambda.args.map(&.name).splat }})
+          {{ lambda.body }}
+        end
+      {% else %}
+        def self.{{name.id}}({{ block.args.splat }})
+          {{ block.body }}
+        end
+      {% end %}
     end
 
     # default_scope { where(...) } — the body must be a single `where`
@@ -870,6 +885,28 @@ module ActiveRecord
             all.includes(*names)
           end
 
+          # Nested Rails form (see Relation#includes): class-level
+          # includes(creator: :avatar_attachment) / preload(:room, boosts: { ... }).
+          def self.includes(**nested : Symbol | String | ::NamedTuple) : ::ActiveRecord::Relation(self)
+            all.includes(**nested)
+          end
+
+          def self.includes(*names : String | Symbol, **nested : Symbol | String | ::NamedTuple) : ::ActiveRecord::Relation(self)
+            all.includes(*names, **nested)
+          end
+
+          def self.preload(*names : String | Symbol) : ::ActiveRecord::Relation(self)
+            all.preload(*names)
+          end
+
+          def self.preload(**nested : Symbol | String | ::NamedTuple) : ::ActiveRecord::Relation(self)
+            all.preload(**nested)
+          end
+
+          def self.preload(*names : String | Symbol, **nested : Symbol | String | ::NamedTuple) : ::ActiveRecord::Relation(self)
+            all.preload(*names, **nested)
+          end
+
           def self.eager_load(*names : String | Symbol) : ::ActiveRecord::Relation(self)
             all.eager_load(*names)
           end
@@ -1039,6 +1076,89 @@ module ActiveRecord
                         owner.__cache_assoc({{a[1]}}, target)
                       end
                     end
+                  end
+                {% elsif a[2] == "has_one_poly" %}
+                  # Polymorphic has_one through (record_type, record_id):
+                  # Action Text rich text records. One IN query, target
+                  # cached per owner.
+              when {{a[1]}} then
+                  ids = records.map(&.id).compact
+                  unless ids.empty?
+                    targets = {} of Int64 => ::ActiveRecord::Base
+                    {{a[3]}}.where(
+                      "record_type = ? AND record_id IN (#{ids.join(", ")})",
+                      {{t.name.stringify}}).to_a.each do |rec|
+                      if (rid = rec["record_id"].as?(Int64))
+                        targets[rid] = rec
+                      end
+                    end
+                    records.each do |owner|
+                      if (oid = owner.id) && (target = targets[oid]?)
+                        owner.__cache_assoc({{a[1]}}, target)
+                      end
+                    end
+                  end
+                {% elsif a[2] == "as_one" %}
+                  # Active Storage-style single attachment: one row in
+                  # active_storage_attachments per (name, record_type,
+                  # record_id). One IN query, target cached per owner.
+              when {{a[1]}} then
+                  ids = records.map(&.id).compact
+                  unless ids.empty?
+                    targets = {} of Int64 => ::ActiveRecord::Base
+                    {{a[3]}}.where(
+                      "record_type = ? AND record_id IN (#{ids.join(", ")}) AND name = ?",
+                      {{t.name.stringify}}, {{a[5]}}).to_a.each do |rec|
+                      if (rid = rec["record_id"].as?(Int64))
+                        targets[rid] = rec
+                      end
+                    end
+                    records.each do |owner|
+                      if (oid = owner.id) && (target = targets[oid]?)
+                        owner.__cache_assoc({{a[1]}}, target)
+                      end
+                    end
+                  end
+                {% end %}
+              {% end %}
+            {% end %}
+            end
+            nil
+          end
+
+          # Recursive preloader for dot-path includes
+          # (Relation#includes(creator: :avatar_attachment) → the
+          # "creator.avatar_attachment" path): preloads the head association
+          # via __preload_assoc, collects the loaded child records and
+          # dispatches the rest of the path on the child class (static
+          # dispatch through the registry class — no virtual metaclass
+          # needed). Polymorphic has_many owners' children are not walked.
+          def self.__preload_path(segs : Array(String), records : Array(self)) : Nil
+            return if records.empty? || segs.empty?
+            head = segs.first
+            rest = segs[1..]
+            __preload_assoc(head, records)
+            return if rest.empty?
+            case head
+            {% for a in ActiveRecord::ASSOCIATIONS %}
+              {% if a[0] == t.name.stringify %}
+                {% if a[2] == "has_many" %}
+              when {{a[1]}} then
+                  children = records.flat_map { |o| o.__loaded_assoc_records({{a[1]}}) || [] of ::ActiveRecord::Base }
+                  unless children.empty?
+                    {{a[3]}}.__preload_path(rest, children.map(&.as({{a[3]}})))
+                  end
+                {% elsif a[2] == "belongs_to" %}
+              when {{a[1]}} then
+                  children = records.compact_map { |o| o.__cached_assoc_record({{a[1]}}) }
+                  unless children.empty?
+                    {{a[3]}}.__preload_path(rest, children.map(&.as({{a[3]}})))
+                  end
+                {% elsif a[2] == "has_one_poly" || a[2] == "as_one" %}
+              when {{a[1]}} then
+                  children = records.compact_map { |o| o.__cached_assoc_record({{a[1]}}) }
+                  unless children.empty?
+                    {{a[3]}}.__preload_path(rest, children.map(&.as({{a[3]}})))
                   end
                 {% end %}
               {% end %}

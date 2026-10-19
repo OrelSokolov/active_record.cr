@@ -319,6 +319,18 @@ module ActiveRecord
       @loaded_assocs[name] = records
     end
 
+    # Preloaded has_many target (nil when not preloaded) — used by the
+    # recursive dot-path preloader to walk nested includes levels.
+    def __loaded_assoc_records(name : String) : Array(Base)?
+      @loaded_assocs[name]?
+    end
+
+    # Cached belongs_to / has_one target (nil when not cached) — inverse-of
+    # cache reader for the dot-path preloader.
+    def __cached_assoc_record(name : String) : Base?
+      @assoc_cache[name]?
+    end
+
     # autosave: true has_many — children built through the association
     # proxy are appended to the loaded target so the owner's validation /
     # save hooks see them (Rails keeps them in the association target).

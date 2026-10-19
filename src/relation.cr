@@ -282,6 +282,10 @@ module ActiveRecord
 
     private def order_term(col : String, dir) : String
       parts = col.split(/\s+/)
+      # Raw SQL expressions (function calls like `lower(name)`) pass through
+      # unquoted — quoting them would turn the call into a constant string
+      # literal in SQLite, silently dropping the ordering.
+      return col if parts[0].includes?('(')
       base = quote(parts[0])
       suffix = if parts.size > 1
                  " " + parts[1..].join(" ").upcase
@@ -415,6 +419,43 @@ module ActiveRecord
       includes(*names)
     end
 
+    # Nested Rails form: includes(creator: :avatar_attachment),
+    # includes(boosts: { booster: :avatar_attachment }). The nested spec is
+    # flattened into dot-paths ("creator.avatar_attachment") stored in
+    # includes_values and preloaded level by level.
+    def includes(**nested : Symbol | String | NamedTuple) : Relation(T)
+      rebuild(includes_values: @includes_values + NestedSpec.flatten(nested))
+    end
+    def preload(**nested : Symbol | String | NamedTuple) : Relation(T)
+      includes(**nested)
+    end
+
+    # Mixed form: preload(:room, creator: :avatar_attachment).
+    def includes(*names : String | Symbol, **nested : Symbol | String | NamedTuple) : Relation(T)
+      rebuild(includes_values: @includes_values + names.to_a.map(&.to_s) + NestedSpec.flatten(nested))
+    end
+    def preload(*names : String | Symbol, **nested : Symbol | String | NamedTuple) : Relation(T)
+      includes(*names, **nested)
+    end
+
+    # Helpers to flatten a nested preload/includes spec into dot-paths.
+    module NestedSpec
+      def self.flatten(spec : NamedTuple) : Array(String)
+        paths = [] of String
+        spec.each do |key, value|
+          prefix = key.to_s
+          case value
+          when Symbol, String then paths << "#{prefix}.#{value}"
+          when NamedTuple
+            flatten(value).each { |sub| paths << "#{prefix}.#{sub}" }
+          else
+            raise ArgumentError.new("unsupported preload spec for #{prefix}: #{value.class}")
+          end
+        end
+        paths
+      end
+    end
+
     # Rails eager_load: materialize with a single LEFT OUTER JOIN query
     # (has_many/belongs_to; other kinds fall back to lazy loading).
     def eager_load(*names : String | Symbol) : Relation(T)
@@ -425,6 +466,46 @@ module ActiveRecord
     # the single-query eager_load strategy.
     def references(*names : String | Symbol) : Relation(T)
       rebuild(references_values: @references_values + names.to_a.map(&.to_s))
+    end
+
+    # Rails Relation#merge: combines another relation of the same model.
+    # where fragments concatenate (AND), orders concatenate, includes /
+    # eager_load / references union; limit / offset / select / annotation
+    # take the other's value when set there; distinct / none are OR-ed.
+    def merge(other : Relation(T)) : Relation(T)
+      rebuild(
+        wheres: @wheres + other.@wheres,
+        args: @args + other.@args,
+        orders: @orders + other.@orders,
+        limit_value: other.@limit_value || @limit_value,
+        offset_value: other.@offset_value || @offset_value,
+        where_hash: @where_hash.merge(other.@where_hash),
+        groups: @groups + other.@groups,
+        havings: @havings + other.@havings,
+        having_args: @having_args + other.@having_args,
+        distinct_flag: @distinct_flag || other.@distinct_flag,
+        none_flag: @none_flag || other.@none_flag,
+        joins: @joins + other.@joins,
+        annotation_text: other.@annotation || @annotation,
+        select_values: other.@select_values || @select_values,
+        lock_clause: other.@lock_clause || @lock_clause,
+        readonly_flag: @readonly_flag || other.@readonly_flag,
+        strict_flag: @strict_flag || other.@strict_flag,
+        includes_values: @includes_values + (other.@includes_values - @includes_values),
+        eager_load_values: @eager_load_values + (other.@eager_load_values - @eager_load_values),
+        references_values: @references_values + (other.@references_values - @references_values),
+      )
+    end
+
+    # Rails chainability: model scopes (class methods returning a Relation)
+    # are callable on a relation — `Message.where(...).ordered`. The call is
+    # forwarded to the model class and merged into this relation (AND for
+    # where, union for includes). Unknown methods fail to compile against
+    # the model class, so typos are caught at compile time.
+    macro method_missing(call)
+      {% model = @type.type_vars.first %}
+      sc = {{ model }}.{{ call.name }}({{ call.args.splat }})
+      merge(sc)
     end
 
     def explain : String
@@ -594,7 +675,13 @@ module ActiveRecord
           record.strict_loading = @strict_flag
         end
         rest = (@includes_values + @eager_load_values).reject { |n| n == eager_name }
-        rest.each { |assoc| T.__preload_assoc(assoc, records) }
+        rest.each do |assoc|
+          if assoc.includes?('.')
+            T.__preload_path(assoc.split('.'), records)
+          else
+            T.__preload_assoc(assoc, records)
+          end
+        end
         records.each { |record| yield record }
         return
       end
@@ -610,7 +697,13 @@ module ActiveRecord
         end
       end
       unless @includes_values.empty?
-        @includes_values.each { |assoc| T.__preload_assoc(assoc, records) }
+        @includes_values.each do |assoc|
+          if assoc.includes?('.')
+            T.__preload_path(assoc.split('.'), records)
+          else
+            T.__preload_assoc(assoc, records)
+          end
+        end
       end
       records.each { |record| yield record }
     end

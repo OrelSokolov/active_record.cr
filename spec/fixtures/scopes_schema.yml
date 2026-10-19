@@ -1,0 +1,111 @@
+---
+users:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: name
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'YES'
+    default:
+rooms:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: name
+    type: varchar
+    nullable: 'NO'
+    default:
+messages:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: room_id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: creator_id
+    type: int8
+    nullable: 'YES'
+    default:
+  - name: created_at
+    type: timestamp
+    nullable: 'YES'
+    default:
+boosts:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: message_id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: booster_id
+    type: int8
+    nullable: 'YES'
+    default:
+action_text_rich_texts:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: record_type
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: record_id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: name
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: body
+    type: text
+    nullable: 'YES'
+    default:
+active_storage_attachments:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: name
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: record_type
+    type: varchar
+    nullable: 'NO'
+    default:
+  - name: record_id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: blob_id
+    type: int8
+    nullable: 'NO'
+    default:
+active_storage_blobs:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: filename
+    type: varchar
+    nullable: 'YES'
+    default:
