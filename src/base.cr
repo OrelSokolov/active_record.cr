@@ -379,6 +379,21 @@ module ActiveRecord
       {% has_type = false %}
       {% for c in cols %}{% if c[0] == "type" %}{% has_type = true %}{% end %}{% end %}
 
+      # STI case: the direct superclass is itself a registered
+      # non-abstract model (Rooms::Open < Room). Intermediate abstract
+      # bases (ApplicationRecord) are skipped via `abstract?`.
+      # (Inlined — a macro body can't call macro methods on this
+      # Crystal version; MODELS already lists models defined so far,
+      # and a superclass is always defined before its subclass.)
+      {% super_is_model = false %}
+      {% unless @type.superclass.stringify == "ActiveRecord::Base" %}
+        {% for m in ActiveRecord::MODELS %}
+          {% if m.name.stringify == @type.superclass.name.stringify && !m.abstract? %}
+            {% super_is_model = true %}
+          {% end %}
+        {% end %}
+      {% end %}
+
       {% for c in cols %}
         @{{c[0].id}} : {{c[1].id}}? = {{c[4]}}
 
@@ -481,7 +496,7 @@ module ActiveRecord
       {% for c in cols %}{% if c[3] %}{% params << c %}{% end %}{% end %}
       {% if params.empty? %}
         def initialize(for_load = false)
-          {% if has_type && @type.superclass.stringify != "ActiveRecord::Base" %}
+          {% if has_type && super_is_model %}
             @type = {{ @type.name.split("::").last }} if @type.nil?
           {% end %}
           __apply_manual_attribute_defaults unless for_load
@@ -512,7 +527,7 @@ module ActiveRecord
               end
             {% else %}@{{c[0].id}} = {{c[0].id}};{% end %}
           {% end %}
-          {% if has_type && @type.superclass.stringify != "ActiveRecord::Base" %}
+          {% if has_type && super_is_model %}
             @type = {{ @type.name.split("::").last }} if @type.nil?
           {% end %}
           __apply_manual_attribute_defaults unless for_load
@@ -802,7 +817,19 @@ module ActiveRecord
               rel = ::ActiveRecord::Relation(self).new(self)
             {% end %}
             # STI descendant: single-table filter on the type column.
-            {% if t.superclass.stringify != "ActiveRecord::Base" %}
+            # Intermediate abstract bases (ApplicationRecord) are not
+            # models — walk past them (same as the table-name logic).
+            # Inlined (a `macro finished` body can't call macro methods
+            # defined in Base or at top level on this Crystal version).
+            {% super_m = false %}
+            {% unless t.superclass.stringify == "ActiveRecord::Base" %}
+              {% for m in ActiveRecord::MODELS %}
+                {% if m.name.stringify == t.superclass.name.stringify && !m.abstract? %}
+                  {% super_m = true %}
+                {% end %}
+              {% end %}
+            {% end %}
+            {% if super_m %}
               rel = rel.where(type: name.not_nil!.split("::").last) if __has_type_column?
             {% end %}
             rel
