@@ -288,10 +288,12 @@ module ActiveRecord
         def self.{{name.id}}({{ lambda.args.map(&.name).splat }})
           {{ lambda.body }}
         end
+        {% ::ActiveRecord::SCOPES << { @type.stringify, name.id.stringify, lambda.args, lambda.body } %}
       {% else %}
         def self.{{name.id}}({{ block.args.splat }})
           {{ block.body }}
         end
+        {% ::ActiveRecord::SCOPES << { @type.stringify, name.id.stringify, block.args, block.body } %}
       {% end %}
     end
 

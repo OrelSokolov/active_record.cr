@@ -13,6 +13,11 @@ module ActiveRecord
   # Compile-time association registry: {class, name, kind, klass, fk}.
   ASSOCIATIONS = [] of Nil
 
+  # Compile-time scope registry: {class, name, args, body} — scopes are
+  # re-emitted as Relation(T) instance methods so association scopes chain
+  # (user.rooms.without_directs merges, like Rails).
+  SCOPES = [] of Nil
+
   # Polymorphic owners ({as-name, type value, owner TypeNode}) and
   # polymorphic belongs_to users ({class, assoc name}).
   POLY_OWNERS = [] of Nil
@@ -127,9 +132,12 @@ module ActiveRecord
       if preset = @preset
         preset
       elsif oid = @owner_id
-        @model.where(%("#{@foreign_key}" = ?), oid)
+        # Relation.new (not @model.where): STI base classes dispatch class
+        # query methods over the subclass union, clashing with the
+        # Relation(self) return annotations.
+        ::ActiveRecord::Relation(T).new(@model).where(%("#{@foreign_key}" = ?), oid)
       else
-        @model.all
+        ::ActiveRecord::Relation(T).new(@model)
       end
     end
 
@@ -183,6 +191,65 @@ module ActiveRecord
 
     def where(condition : String, *args) : Relation(T)
       scope.where(condition, *args)
+    end
+
+    def where(**opts) : Relation(T)
+      scope.where(**opts)
+    end
+
+    def find(id : Int64 | Int32 | String) : T
+      if l = @loaded
+        r = find?(id)
+        raise ActiveRecord::RecordNotFound.new(
+          "Couldn't find #{model} with 'id'=#{id}") unless r
+        r
+      else
+        scope.find(id)
+      end
+    end
+
+    def find?(id : Int64 | Int32 | String) : T?
+      pk_value = case id
+                 in Int64, Int32 then id.to_i64
+                 in String
+                   parsed = id.to_i64?
+                   return nil unless parsed
+                   parsed
+                 end
+      if l = @loaded
+        l.find { |r| r.id == pk_value }
+      else
+        scope.find?(id)
+      end
+    end
+
+    def find_by(**opts) : T?
+      if l = @loaded
+        l.find do |r|
+          matched = true
+          opts.each do |key, value|
+            rv = r[key.to_s]
+            unless (value.is_a?(Int32) ? rv == value.to_i64 : rv == value)
+              matched = false
+              break
+            end
+          end
+          matched
+        end
+      else
+        scope.find_by(**opts)
+      end
+    end
+
+    def find_by!(**opts) : T
+      find_by(**opts) || raise ActiveRecord::RecordNotFound.new(
+        "Couldn't find #{model} with #{opts.map { |k, v| "#{k}=#{v}" }.join(" ")}")
+    end
+
+    # Unknown calls (scopes of the target model) forward to the scope —
+    # Rails' CollectionProxy method_missing delegation.
+    macro method_missing(call)
+      scope.{{call}}
     end
 
     def build(values : Hash(String, Value) = {} of String => Value) : T
@@ -512,13 +579,33 @@ module ActiveRecord
         {% mid_owner_fk = mid[4] %}
         {% src_klass = source ? source.id : (name.id.stringify.gsub(/s\z/, "").split("_").map(&.capitalize).join("")).id %}
 
+        # Source shape: a belongs_to on the middle class pointing at the
+        # target (memberships.room_id → rooms) puts the FK on the MIDDLE
+        # table — `target.id IN (SELECT <fk> FROM mid WHERE owner = ?)`.
+        # Otherwise the FK lives on the target pointing back at the middle
+        # (comments.post_id → posts.id) — the classic through shape.
+        {% src_assoc = nil %}
+        {% for a in ActiveRecord::ASSOCIATIONS %}
+          {% if a[0] == mid_klass.stringify && a[3] == src_klass.stringify && a[2] == "belongs_to" %}
+            {% src_assoc = a %}
+          {% end %}
+        {% end %}
+
         def {{name.id}} : ::ActiveRecord::CollectionProxy({{src_klass}})
           raise ::ActiveRecord::StrictLoadingViolationError.new(
             "{{@type}} is marked for strict_loading") if strict_loading?
           mid_table = {{mid_klass}}.table_name
+          {% if src_assoc %}
+          sql = %("id" IN (SELECT "{{ src_assoc[4].id }}" FROM "#{mid_table}" WHERE {{mid_owner_fk}} = ?))
+          {% else %}
           mid_fk = ::ActiveRecord::Migrations.singularize(mid_table) + "_id"
           sql = %("#{mid_fk}" IN (SELECT "id" FROM "#{mid_table}" WHERE {{mid_owner_fk}} = ?))
-          ::ActiveRecord::CollectionProxy({{src_klass}}).new({{src_klass}}, {{src_klass}}.where(sql, @id || -1_i64))
+          {% end %}
+          # Relation.new (not klass.where): STI base classes dispatch class
+          # query methods over the subclass union, which clashes with the
+          # Relation(self) return annotations.
+          preset = ::ActiveRecord::Relation({{src_klass}}).new({{src_klass}}).where(sql, @id || -1_i64)
+          ::ActiveRecord::CollectionProxy({{src_klass}}).new({{src_klass}}, preset)
         end
 
         def {{(name.id.stringify.gsub(/s$/, "") + "_ids").id}} : Array(Int64)

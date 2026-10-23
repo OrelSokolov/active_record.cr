@@ -790,6 +790,31 @@ module ActiveRecord
       r.reverse_order.limit(1).to_a.first?
     end
 
+    def find(id : Int64 | Int32 | String) : T
+      find?(id) || raise ActiveRecord::RecordNotFound.new(
+        "Couldn't find #{model} with 'id'=#{id}")
+    end
+
+    def find?(id : Int64 | Int32 | String) : T?
+      pk_value = case id
+                 in Int64, Int32 then id.to_i64
+                 in String
+                   parsed = id.to_i64?
+                   return nil unless parsed
+                   parsed
+                 end
+      where(%("#{model.primary_key}" = ?), pk_value).first
+    end
+
+    def find_by(**opts) : T?
+      where(**opts).first
+    end
+
+    def find_by!(**opts) : T
+      find_by(**opts) || raise ActiveRecord::RecordNotFound.new(
+        "Couldn't find #{model} with #{opts.map { |k, v| "#{k}=#{v}" }.join(" ")}")
+    end
+
     def sole : T
       records = limit(2).to_a
       case records.size
@@ -872,6 +897,23 @@ module ActiveRecord
       return nil if @none_flag
       sql, args = build_sql("round(avg(#{maybe_qualify(quote(col.to_s))})::numeric, 2)", [] of String)
       Base.__session.query_one?(sql, args: args, as: PG::Numeric?)
+    end
+
+    # Scope methods of the target model, re-emitted as instance methods so
+    # `user.rooms.without_directs` merges into the association scope (Rails
+    # CollectionProxy delegates to scopes on the relation). The bodies call
+    # Relation's own where/order/... — the merge happens naturally.
+    macro finished
+      {% if @type.type_vars.size > 0 %}
+        {% model_name = @type.type_vars.first.stringify %}
+        {% for s in ::ActiveRecord::SCOPES %}
+          {% if s[0] == model_name %}
+            def {{ s[1].id }}({{ s[2].map(&.name).splat }}) : Relation(T)
+              {{ s[3] }}
+            end
+          {% end %}
+        {% end %}
+      {% end %}
     end
   end
 end
