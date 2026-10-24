@@ -1,0 +1,30 @@
+gadgets:
+  columns:
+  - name: id
+    type: int8
+    nullable: 'NO'
+    default:
+  - name: name
+    type: varchar
+    nullable: 'YES'
+    default:
+  - name: status
+    type: int8
+    nullable: 'YES'
+    default:
+  - name: kind
+    type: int8
+    nullable: 'YES'
+    default:
+  - name: widgets_count
+    type: int8
+    nullable: 'YES'
+    default: 0
+  - name: created_at
+    type: timestamp
+    nullable: 'YES'
+    default:
+  - name: updated_at
+    type: timestamp
+    nullable: 'YES'
+    default:

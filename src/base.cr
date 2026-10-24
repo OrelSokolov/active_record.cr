@@ -63,6 +63,12 @@ module ActiveRecord
   # value => int}. Rails 8.1 enum getters return STRINGS (oracle-verified).
   ENUMS = [] of Nil
 
+  # enum options kept in side registries (ENUMS arity stays at 3 — five
+  # consumption sites destructure it): {class, enum, prefix-string} and
+  # {class, enum, default-value}.
+  ENUM_PREFIXES = [] of Nil
+  ENUM_DEFAULTS = [] of Nil
+
   # Compile-time store registry: {class name, jsonb column}. Models using
   # `store` get a StoreProxy reader instead of the raw JSON::Any.
   STORES = [] of Nil
@@ -155,8 +161,39 @@ module ActiveRecord
     # may be ints or strings (Rails' %w[...].index_by(&:itself)); invalid
     # string values raise ArgumentError on write — setter, .new and update
     # (string-valued enums) alike, matching the oracle.
-    macro ar_enum(name, values)
-      {% ActiveRecord::ENUMS << {@type.name.stringify, name.id.stringify, values} %}
+    #
+    # Options: an ArrayLiteral of symbols auto-numbers the values (Rails'
+    # %i[...] form); `prefix:` renames predicates/bangs/scopes (Rails'
+    # `prefix: :involved_in` → `involved_in_invisible?`); `default:`
+    # applies the value to new records in after_initialize.
+    macro ar_enum(name, values, prefix = nil, default = nil)
+      # Registry values are normalized to an ArrayLiteral of {key, value}
+      # tuples (ArrayLiteral inputs auto-number, Rails' %i[...] form) —
+      # consumption sites iterate `for pair in e[2]` uniformly.
+      {% norm = [] of Nil %}
+      {% if values.is_a?(ArrayLiteral) %}
+        {% i = 0 %}
+        {% for sym in values %}
+          {% norm << {sym.id, i} %}
+          {% i = i + 1 %}
+        {% end %}
+      {% else %}
+        {% for k, v in values %}
+          {% norm << {k.id, v} %}
+        {% end %}
+      {% end %}
+      {% ActiveRecord::ENUMS << { @type.name.stringify, name.id.stringify, norm } %}
+      {% if prefix %}
+        {% ActiveRecord::ENUM_PREFIXES << { @type.name.stringify, name.id.stringify, prefix.id.stringify } %}
+      {% end %}
+      {% if default %}
+        {% default_value = nil %}
+        {% for pair in norm %}
+          {% if pair[0].id.stringify == default.id.stringify %}{% default_value = pair[1] %}{% end %}
+        {% end %}
+        {% raise "ar_enum #{name}: default #{default} is not one of its values" unless default_value %}
+        after_initialize { @{{name.id}} = {{ default_value }} if @{{name.id}}.nil? && new_record? }
+      {% end %}
     end
 
     # store :settings, accessors: [:theme] — jsonb-backed accessor methods.
@@ -322,6 +359,34 @@ module ActiveRecord
 
     @original_attributes : Hash(String, Value)?
     @previous_changes : Hash(String, Tuple(Value, Value)) = {} of String => Tuple(Value, Value)
+    @previously_new_record = false
+
+    # Rails 7+ dirty: true when the last save created the record.
+    def previously_new_record? : Bool
+      @previously_new_record
+    end
+
+    # Rails attribute_previously_changed?: did the last save change `name`,
+    # optionally from a given old / to a given new value (loose String/Int
+    # comparison — enum columns read back as raw Int64/String values).
+    def attribute_previously_changed?(name : String, from = nil, to = nil) : Bool
+      change = saved_changes[name]?
+      return false unless change
+      old_value, new_value = change
+      return false unless __previously_matches?(old_value, from)
+      return false unless __previously_matches?(new_value, to)
+      true
+    end
+
+    private def __previously_matches?(value : Value, expected) : Bool
+      case expected
+      when Nil then true
+      when String then value.to_s == expected
+      when Int32 then value == expected.to_i64
+      when Int64 then value == expected
+      else value.to_s == expected.to_s
+      end
+    end
 
     # Overridden per model when `attribute ... default:` is declared.
     def __apply_manual_attribute_defaults : Nil
@@ -489,8 +554,8 @@ module ActiveRecord
           {{c[0].id}}_changed?
         end
 
-        def {{c[0].id}}_previously_changed? : Bool
-          saved_changes.has_key?({{c[0]}})
+        def {{c[0].id}}_previously_changed?(from = nil, to = nil) : Bool
+          attribute_previously_changed?({{c[0]}}, from: from, to: to)
         end
       {% end %}
 
@@ -517,7 +582,7 @@ module ActiveRecord
             {% enum_init = false %}
             {% for e in ActiveRecord::ENUMS %}
               {% if e[0] == @type.name.stringify && e[1] == c[0] %}
-                {% enum_init = e[2].values.first.is_a?(StringLiteral) %}
+                {% enum_init = (e[2].is_a?(ArrayLiteral) ? e[2].map { |tup| tup[1] }.first : e[2].values.first).is_a?(StringLiteral) %}
               {% end %}
             {% end %}
             # encrypted columns go through the encrypting setter
@@ -639,12 +704,12 @@ module ActiveRecord
             {% for e in ActiveRecord::ENCRYPTED %}
               {% if e[0] == @type.name.stringify && e[1] == c[0] %}{% enc_assign = true %}{% end %}
             {% end %}
-            # string-valued enum columns validate through the setter
+            # enum columns accept the string name through the validating
+            # setter (name -> value mapping, junk raises ArgumentError);
+            # raw column-typed values assign directly
             {% enum_assign = false %}
             {% for e in ActiveRecord::ENUMS %}
-              {% if e[0] == @type.name.stringify && e[1] == c[0] %}
-                {% enum_assign = e[2].values.first.is_a?(StringLiteral) %}
-              {% end %}
+              {% if e[0] == @type.name.stringify && e[1] == c[0] %}{% enum_assign = true %}{% end %}
             {% end %}
             # encrypted columns go through the encrypting setter
             {% if enc_assign %}
@@ -654,7 +719,7 @@ module ActiveRecord
               if (ev = value.as?(String))
                 self.{{c[0].id}} = ev
               else
-                @{{c[0].id}} = nil
+                @{{c[0].id}} = value.as?({{c[1].id}})
               end
             {% else %}
             when {{c[0]}} then @{{c[0].id}} = value.as?({{c[1].id}})
@@ -1324,15 +1389,16 @@ module ActiveRecord
             {% end %}
           end
 
-          # enum emission (getter overrides the skipped codegen one)
+          # enum emission (getter overrides the skipped codegen one);
+          # e[2] is an ArrayLiteral of {key, value} tuples
           {% for e in ActiveRecord::ENUMS %}
             {% if e[0] == t.name.stringify %}
               def {{e[1].id}} : String?
                 v = @{{e[1].id}}
                 return nil if v.nil?
                 case v
-                {% for k, v in e[2] %}
-                when {{v}} then {{k.stringify}}
+                {% for pair in e[2] %}
+                when {{pair[1]}} then {{pair[0].stringify}}
                 {% end %}
                 # unmapped DB values read as nil (oracle-verified Rails 8.1:
                 # junk enum rows don't raise on load)
@@ -1342,8 +1408,8 @@ module ActiveRecord
 
               def {{e[1].id}}=(value : String)
                 case value
-                {% for k, v in e[2] %}
-                when {{k.stringify}} then @{{e[1].id}} = {{v}}
+                {% for pair in e[2] %}
+                when {{pair[0].stringify}} then @{{e[1].id}} = {{pair[1]}}
                 {% end %}
                 else
                   raise ArgumentError.new("invalid value #{value} for {{e[1].id}}")
@@ -1356,22 +1422,29 @@ module ActiveRecord
 
               # String-valued enums (Rails' %w[...].index_by(&:itself)) map
               # key => string; int enums keep the Int64 mapping.
-              {% int_vals = e[2].values.first.is_a?(NumberLiteral) %}
+              {% int_vals = e[2].map { |tup| tup[1] }.first.is_a?(NumberLiteral) %}
+              {% pfx = nil %}
+              {% for p in ActiveRecord::ENUM_PREFIXES %}
+                {% if p[0] == t.name.stringify && p[1] == e[1] %}{% pfx = p[2] %}{% end %}
+              {% end %}
               def self.{{(e[1].id.stringify + (e[1].id.stringify.ends_with?("s") ? "es" : "s")).id}} : Hash(String, {{ (int_vals ? "Int64" : "String").id }})
-                { {% for k, v in e[2] %}{{k.stringify}} => {{ int_vals ? "#{v}_i64".id : v }}, {% end %} }
+                { {% for pair in e[2] %}{{pair[0].stringify}} => {{ int_vals ? "#{pair[1]}_i64".id : pair[1] }}, {% end %} }
               end
 
-              {% for k, v in e[2] %}
-                def {{k.id}}? : Bool
+              {% for pair in e[2] %}
+                {% k = pair[0] %}
+                {% v = pair[1] %}
+                {% mname = (pfx ? (pfx.id.stringify + "_" + k.stringify) : k.stringify).id %}
+                def {{mname}}? : Bool
                   @{{e[1].id}} == {{v}}
                 end
 
-                def {{k.id}}! : Bool
+                def {{mname}}! : Bool
                   self.{{e[1].id}} = {{k.stringify}}
                   save
                 end
 
-                def self.{{k.id}} : ::ActiveRecord::Relation(self)
+                def self.{{mname}} : ::ActiveRecord::Relation(self)
                   all.where({{e[1].id.stringify}}: {{v}})
                 end
               {% end %}
@@ -1411,6 +1484,24 @@ module ActiveRecord
           def __run_before_save : Bool
             {% for m in t.methods %}
               {% if m.name.stringify.starts_with?("before_save__cb_") %}
+                return false unless {{ m.name.id }}
+              {% end %}
+            {% end %}
+            true
+          end
+
+          def __run_before_create : Bool
+            {% for m in t.methods %}
+              {% if m.name.stringify.starts_with?("before_create__cb_") %}
+                return false unless {{ m.name.id }}
+              {% end %}
+            {% end %}
+            true
+          end
+
+          def __run_before_update : Bool
+            {% for m in t.methods %}
+              {% if m.name.stringify.starts_with?("before_update__cb_") %}
                 return false unless {{ m.name.id }}
               {% end %}
             {% end %}

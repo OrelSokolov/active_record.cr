@@ -66,39 +66,52 @@ module ActiveRecord
         # trailing `nil`. Do not make `saved = true` the last expression.
         __wrap_around_save(0, ->{
           if __run_before_save
+            succeeded = false
             if new_record?
               __wrap_around_create(0, ->{
-                changes_to_write = changes
-                __write_timestamps_on_create
-                id = __insert(changes_to_write.keys + (changes_to_write.keys & ["created_at", "updated_at"]))
-                @id = id
-                self.new_record = false
-                @previous_changes = changes_to_write
-                __snapshot_original!
+                if __run_before_create
+                  changes_to_write = changes
+                  __write_timestamps_on_create
+                  id = __insert(changes_to_write.keys + (changes_to_write.keys & ["created_at", "updated_at"]))
+                  @id = id
+                  self.new_record = false
+                  @previously_new_record = true
+                  @previous_changes = changes_to_write
+                  __snapshot_original!
+                  succeeded = true
+                end
+                # keep this tail statement: see the codegen-workaround note above
+                nil
               })
-              __run_after_create
+              __run_after_create if succeeded
             else
               __wrap_around_update(0, ->{
-                changes_to_write = __merge_updated_at_change(changes)
-                # attr_readonly columns are silently dropped from updates.
-                unless __readonly_attrs.empty?
-                  changes_to_write = changes_to_write.reject { |k, _| __readonly_attrs.includes?(k) }
+                if __run_before_update
+                  changes_to_write = __merge_updated_at_change(changes)
+                  # attr_readonly columns are silently dropped from updates.
+                  unless __readonly_attrs.empty?
+                    changes_to_write = changes_to_write.reject { |k, _| __readonly_attrs.includes?(k) }
+                  end
+                  # Optimistic locking (lock_version column): increment in the
+                  # same UPDATE and fail on a stale row (0 rows affected).
+                  if __optimistic_locking?
+                    old_lv = attributes["lock_version"]?.as?(Int64) || 0_i64
+                    changes_to_write = changes_to_write.merge(
+                      {"lock_version" => {old_lv.as(Value), old_lv + 1}})
+                    assign_attributes({"lock_version" => old_lv + 1})
+                  end
+                  __update(changes_to_write) unless changes_to_write.empty?
+                  @previously_new_record = false
+                  @previous_changes = changes_to_write
+                  __snapshot_original!
+                  succeeded = true
                 end
-                # Optimistic locking (lock_version column): increment in the
-                # same UPDATE and fail on a stale row (0 rows affected).
-                if __optimistic_locking?
-                  old_lv = attributes["lock_version"]?.as?(Int64) || 0_i64
-                  changes_to_write = changes_to_write.merge(
-                    {"lock_version" => {old_lv.as(Value), old_lv + 1}})
-                  assign_attributes({"lock_version" => old_lv + 1})
-                end
-                __update(changes_to_write) unless changes_to_write.empty?
-                @previous_changes = changes_to_write
-                __snapshot_original!
+                # keep this tail statement: see the codegen-workaround note above
+                nil
               })
-              __run_after_update
+              __run_after_update if succeeded
             end
-            saved = true
+            saved = succeeded
           end
           # keep this tail statement: see the codegen-workaround note above
           nil
