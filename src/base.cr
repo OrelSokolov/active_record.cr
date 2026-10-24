@@ -115,6 +115,18 @@ module ActiveRecord
       {% ActiveRecord::MODELS << @type %}
     end
 
+    # Virtual-dispatch base for codegen-generated per-model find? — lets
+    # runtime class objects (GlobalID::Locator lookup) call find?. Concrete
+    # models override this via the codegen; Base itself is never queried.
+    def self.find?(id : Int64 | Int32 | String) : self?
+      raise NotImplementedError.new("find? on a non-concrete model")
+    end
+
+    # Virtual-dispatch base for the codegen table_name accessor.
+    def self.table_name : String
+      raise NotImplementedError.new("table_name on a non-concrete model")
+    end
+
     # Explicit table name override (before codegen):
     #   class LegacyPost < ActiveRecord::Base
     #     set_table_name "posts"
