@@ -28,6 +28,12 @@ module ActiveRecord
     def initialize(@version : Int64? = nil)
     end
 
+    # Rails' ActiveRecord::Migration[7.2] — the version is recorded for
+    # compatibility only; migration semantics don't branch on it here.
+    def self.[](version) : self.class
+      self
+    end
+
     # --- overridables -----------------------------------------------------
     def up : Nil
     end

@@ -135,3 +135,10 @@ describe "ActiveRecord migrations oracle (expected.yml from activerecord 8.1.4)"
     end
   end
 end
+
+describe "ActiveRecord::Migration[]" do
+  it "accepts a Rails-style version bracket (semantics unchanged)" do
+    (ActiveRecord::Migration[8.1]).should eq(ActiveRecord::Migration)
+    (ActiveRecord::Migration[7.2]).should eq(ActiveRecord::Migration)
+  end
+end
