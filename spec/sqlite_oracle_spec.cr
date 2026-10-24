@@ -153,6 +153,15 @@ describe "ActiveRecord SQLite adapter (oracle: sqlite3 CLI)" do
         .should eq("1")
     end
 
+    it "find by string id (junk strings raise, not crash)" do
+      room = Room.new(name: "FindStr", kind: "open").tap(&.save!)
+      Room.find(room.id.not_nil!.to_s).id.should eq(room.id)
+      Room.find?(room.id.not_nil!.to_s).try(&.id).should eq(room.id)
+      expect_raises(ActiveRecord::RecordNotFound, /Couldn't find/) { Room.find("abc") }
+      Room.find?("abc").should be_nil
+      Room.find?("999999").should be_nil
+    end
+
     it "round-trips booleans as 0/1 integers" do
       msg = Message.new(room_id: 1_i64, body: "pin me", pinned: true).tap(&.save!)
       Oracle.cli("SELECT pinned FROM messages WHERE id = #{msg.id};").should eq("1")

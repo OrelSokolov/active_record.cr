@@ -1033,14 +1033,25 @@ module ActiveRecord
             all.ids
           end
 
-          def self.find(id : Int64 | Int32) : self
-            pk = id.to_i64
+          def self.find(id : Int64 | Int32 | String) : self
+            pk = case id
+                 in Int64, Int32 then id.to_i64
+                 in String
+                   parsed = id.to_i64?
+                   raise ActiveRecord::RecordNotFound.new(
+                     "Couldn't find #{self} with 'id'=#{id}") unless parsed
+                   parsed
+                 end
             find?(pk) || raise ActiveRecord::RecordNotFound.new(
               "Couldn't find #{self} with 'id'=#{pk}")
           end
 
-          def self.find?(id : Int64 | Int32) : self?
-            all.where(%("#{primary_key}" = ?), id.to_i64).first
+          def self.find?(id : Int64 | Int32 | String) : self?
+            pk = case id
+                 in Int64, Int32 then id.to_i64
+                 in String then id.to_i64?
+                 end
+            pk ? all.where(%("#{primary_key}" = ?), pk).first : nil
           end
 
           def self.find_by(**opts) : self?
