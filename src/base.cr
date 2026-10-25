@@ -572,7 +572,21 @@ module ActiveRecord
       {% end %}
 
       {% params = [] of Nil %}
-      {% for c in cols %}{% if c[3] %}{% params << c %}{% end %}{% end %}
+      {% for c in cols %}
+        {% if c[3] %}
+          {% enum_any = false %}
+          {% for e in ActiveRecord::ENUMS %}
+            {% if e[0] == @type.name.stringify && e[1] == c[0] %}{% enum_any = true %}{% end %}
+          {% end %}
+          # enum columns accept the value's name (String/Symbol) in .new —
+          # Rails maps `Model.new(role: :bot)` through the enum setter
+          {% if enum_any %}
+            {% params << {c[0], c[1], c[4], true} %}
+          {% else %}
+            {% params << {c[0], c[1], c[4], false} %}
+          {% end %}
+        {% end %}
+      {% end %}
       {% if params.empty? %}
         def initialize(for_load = false)
           {% if has_type && super_is_model %}
@@ -582,7 +596,7 @@ module ActiveRecord
           __run_after_initialize unless for_load
         end
       {% else %}
-        def initialize(for_load = false, *, {% for c in params %} {{c[0].id}} : {{c[1].id}}? = {{c[4]}}, {% end %})
+        def initialize(for_load = false, *, {% for c in params %} {{c[0].id}} : {{c[1].id}}?{% if c[3] %} | String | Symbol{% end %} = {{c[2]}}, {% end %})
           {% for c in params %}
             {% enc_init = false %}
             {% for e in ActiveRecord::ENCRYPTED %}
@@ -590,7 +604,9 @@ module ActiveRecord
             {% end %}
             # string-valued enum columns validate through the setter —
             # Rails raises ArgumentError on Model.new(enum_col: "junk");
-            # nil assigns directly (nullable column, Rails allows nil)
+            # nil assigns directly (nullable column, Rails allows nil).
+            # int-valued enums route through the setter as well (Symbol/
+            # String name mapping; raw ints hit the typed setter overload).
             {% enum_init = false %}
             {% for e in ActiveRecord::ENUMS %}
               {% if e[0] == @type.name.stringify && e[1] == c[0] %}
@@ -598,7 +614,7 @@ module ActiveRecord
               {% end %}
             {% end %}
             # encrypted columns go through the encrypting setter
-            {% if enc_init %}self.{{c[0].id}} = {{c[0].id}};{% elsif enum_init %}
+            {% if enc_init || enum_init || c[3] %}
               if (ev = {{c[0].id}})
                 self.{{c[0].id}} = ev
               else

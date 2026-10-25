@@ -139,5 +139,17 @@ describe "callback conditions and commit sugar" do
     g.reload.kind.should eq("premium")
     Gadget.gadget_kind_premium.where("name = ?", "e").count.should eq(1)
   end
+
+  it "enum columns accept Symbol/String names in .new (Rails Model.new(status: :retired))" do
+    g = Gadget.new(name: "s", status: :retired, kind: :premium)
+    g.status.should eq("retired")
+    g.gadget_kind_premium?.should be_true
+    g2 = Gadget.new(name: "s2", status: "active", kind: 2)
+    g2.status.should eq("active")
+    g2.kind.should eq("legacy")
+    g3 = Gadget.new(name: "s3", status: 1)
+    g3.status.should eq("retired")
+    expect_raises(ArgumentError) { Gadget.new(name: "x", status: "junk") }
+  end
 end
 {% end %}
