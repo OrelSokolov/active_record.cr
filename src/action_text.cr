@@ -66,6 +66,18 @@ class ActiveRecord::Base
       __cache_assoc({{assoc_name}}, rich_text_{{name.id}}.not_nil!)
     end
 
+    # Rails: destroying the record destroys its rich_text rows
+    # (ActionText's has_one rich_text, dependent: :destroy).
+    after_destroy __destroy_rich_text_{{name.id}}
+
+    def __destroy_rich_text_{{name.id}} : Nil
+      return unless (oid = id)
+      {{class_name.id}}
+        .where("record_type = ? AND record_id = ? AND name = ?",
+               {{@type.name.stringify}}, oid, {{name.id.stringify}})
+        .delete_all
+    end
+
     def self.with_rich_text_{{name.id}}
       all.includes({{assoc_name.id.symbolize}})
     end

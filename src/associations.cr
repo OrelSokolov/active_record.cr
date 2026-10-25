@@ -179,9 +179,9 @@ module ActiveRecord
 
     def pluck(col : String | Symbol) : Array(Value)
       if l = @loaded
-        l.map { |r| r[col.to_s] }
+        l.map { |r| r[col.to_s].as(Value) }
       else
-        scope.pluck(col)
+        scope.pluck(col).map(&.as(Value))
       end
     end
 
