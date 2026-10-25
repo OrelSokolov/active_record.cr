@@ -412,10 +412,19 @@ module ActiveRecord
 
     macro belongs_to(name, foreign_key = nil, class_name = nil, optional = true,
                      counter_cache = nil, touch = false, polymorphic = false,
-                     inverse_of = nil, autosave = false)
+                     inverse_of = nil, autosave = false, default = nil)
       {% fk = (foreign_key || "#{name.id}_id").id %}
       {% klass = (class_name || name.id.stringify.capitalize).id %}
       {% ActiveRecord::ASSOCIATIONS << { @type.name.stringify, name.id.stringify, polymorphic ? "belongs_to_poly" : "belongs_to", klass, fk.stringify } %}
+      {% if default && !polymorphic %}
+        # default: -> { Current.user } — Rails evaluates the proc on new
+        # records when the FK is not set and assigns the association target.
+        after_initialize do
+          if {{fk.id}}.nil? && new_record? && (rec = {{default}}.call)
+            self.{{name.id}} = rec.as({{klass}})
+          end
+        end
+      {% end %}
 
       {% if polymorphic %}
         {% if autosave %}

@@ -724,6 +724,14 @@ module ActiveRecord
         end
       end
 
+      # Object#slice (ActiveSupport) on models: user.slice(:id, :name) —
+      # the attribute subset as a Hash (Rails' Hash#slice semantics).
+      def slice(*names : String | Symbol) : Hash(String, ActiveRecord::Value)
+        hash = {} of String => ActiveRecord::Value
+        names.each { |n| key = n.to_s; hash[key] = self[key] }
+        hash
+      end
+
       def assign_attributes(values : Hash(String, ActiveRecord::Value)) : Nil
         values.each do |name, value|
           case name
