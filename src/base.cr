@@ -444,6 +444,13 @@ module ActiveRecord
     end
 
     attr_accessor id : Int64?
+
+    # Bang variant of the primary key: raises (with the model named) on
+    # unsaved records instead of leaking a nilable Int64.
+    def id! : Int64
+      @id || raise(NilAssertionError.new("#{self.class.name}#id is nil (unsaved record?)"))
+    end
+
     property? new_record = true
     property? destroyed = false
     # Set on records materialized from Relation#readonly / #strict_loading.
@@ -635,6 +642,19 @@ module ActiveRecord
         {% if c[2] %}
           def {{c[0].id}}? : Bool
             !!@{{c[0].id}}
+          end
+        {% end %}
+
+        # Bang variant of the column getter (Ruby-style "raise instead of
+        # nil"): calls the reader above, so enum (String reader), serialize
+        # and store columns stay correct. Keyword-named columns (kw_ok ==
+        # false) are skipped — their reader isn't callable by name here.
+        # Return type is inferred: the non-nil part of the reader's type.
+        {% if c[3] %}
+          {% bang_msg = "#{@type.name}##{c[0].id} is nil" %}
+          def {{c[0].id}}!
+            value = {{c[0].id}}
+            value || raise(NilAssertionError.new({{ bang_msg }}))
           end
         {% end %}
 
