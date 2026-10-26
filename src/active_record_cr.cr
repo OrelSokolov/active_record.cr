@@ -4,6 +4,7 @@ require "sqlite3"
 require "yaml"
 require "json"
 require "active_support_cr"
+require "action_view_cr"
 
 require "./connection"
 require "./fair_busy"

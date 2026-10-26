@@ -1,5 +1,5 @@
 name: active_record_cr
-version: 0.1.22
+version: 0.1.23
 crystal: ">= 1.21.0"
 dependencies:
   attr_reader_cr:
@@ -7,6 +7,9 @@ dependencies:
     version: ~> 0.1.0
   active_support_cr:
     github: OrelSokolov/active_support.cr
+    version: ~> 0.1.0
+  action_view_cr:
+    github: OrelSokolov/action_view.cr
     version: ~> 0.1.0
   pg:
     github: will/crystal-pg
