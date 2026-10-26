@@ -110,9 +110,52 @@ module ActiveRecord
     end
   end
 
+  # Rails wires Base.signed_id_verifier to
+  # Rails.application.message_verifier("active_record/signed_id") in the
+  # activerecord railtie; a host framework without Rails sets it at boot.
+  class_property signed_id_verifier : ActiveSupport::MessageVerifier? = nil
+
   class Base
     macro inherited
       {% ActiveRecord::MODELS << @type %}
+    end
+
+    # ActionView::FormModel: `form_with model:` reads the record through
+    # this interface. Defaults follow ActiveModel::Naming — the
+    # underscored concrete class name ("User" → "user", "Rooms::Open" →
+    # "rooms_open", the param_key/route_key input) — and the attribute
+    # values through the attributes hash. STI models materialized as a
+    # base class may override form_scope/form_model_name (the port's
+    # Room does, see app/models/room.cr).
+    include ActionView::FormModel
+
+    def form_scope : String
+      self.class.name.underscore.tr("/", "_")
+    end
+
+    def form_model_name : String
+      form_scope
+    end
+
+    # Virtual-dispatch base for the codegen-generated attributes hash
+    # (form_attributes on the FormModel module type reaches Base itself).
+    def attributes : Hash(String, ActiveRecord::Value)
+      {} of String => ActiveRecord::Value
+    end
+
+    def form_attributes : Hash(String, ActionView::FormValue)
+      attrs = {} of String => ActionView::FormValue
+      attributes.each do |name, value|
+        case value
+        when Nil, Bool, Int64, Float64, String, Time then attrs[name] = value
+        else                                                attrs[name] = value.to_s
+        end
+      end
+      attrs
+    end
+
+    def form_persisted? : Bool
+      persisted?
     end
 
     # Virtual-dispatch base for codegen-generated per-model find? — lets
@@ -125,6 +168,47 @@ module ActiveRecord
     # Virtual-dispatch base for the codegen table_name accessor.
     def self.table_name : String
       raise NotImplementedError.new("table_name on a non-concrete model")
+    end
+
+    # Virtual-dispatch base for the codegen primary_key accessor (the
+    # convention default; join_clause reaches it through Base+ registries).
+    def self.primary_key : String
+      "id"
+    end
+
+    # --- Rails ActiveRecord::Signed_id ------------------------------------
+    # signed_id/find_signed/find_signed! on the verifier configured at boot
+    # (ActiveRecord.signed_id_verifier). Values are primary keys; find?
+    # dispatches virtually, so these work on every concrete model.
+
+    def signed_id(purpose : String? = nil, expires_in : Time::Span? = nil) : String
+      verifier = ActiveRecord.signed_id_verifier
+      raise RuntimeError.new("ActiveRecord.signed_id_verifier is not configured") unless verifier
+      if expires_in
+        verifier.generate(id.not_nil!, purpose: purpose, expires_in: expires_in)
+      else
+        verifier.generate(id.not_nil!, purpose: purpose)
+      end
+    end
+
+    def self.find_signed(sid : String, purpose : String? = nil) : self?
+      if (pk = __signed_id_pk(sid, purpose))
+        find?(pk)
+      end
+    end
+
+    def self.find_signed!(sid : String, purpose : String? = nil) : self
+      find_signed(sid, purpose) ||
+        raise RecordNotFound.new("Couldn't find #{name} with signed id")
+    end
+
+    private def self.__signed_id_pk(sid : String, purpose : String?) : Int64?
+      verifier = ActiveRecord.signed_id_verifier
+      return nil unless verifier
+      value = verifier.verified_any(sid, purpose: purpose)
+      if (raw = value.try(&.as_i?)) || (raw = value.try(&.as_s?.try(&.to_i64?)))
+        raw.to_i64
+      end
     end
 
     # Explicit table name override (before codegen):
@@ -933,7 +1017,10 @@ module ActiveRecord
               {% end %}
             {% end %}
             {% if super_m %}
-              rel = rel.where(type: name.not_nil!.split("::").last) if __has_type_column?
+              # Full class name: where(type:) expands a namespaced value to
+              # both spellings ("Rooms::Open" from reference seeds, "Open"
+              # written here) — see Relation#where.
+              rel = rel.where(type: name.not_nil!) if __has_type_column?
             {% end %}
             rel
           end
