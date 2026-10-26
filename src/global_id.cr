@@ -1,11 +1,16 @@
-# globalid-lite (Rails globalid gem): GlobalID::Locator.locate(gid_param)
-# resolves a record from its gid param — urlsafe-b64 of
-# "gid://<app>/<Class>/<id>" (the same shape to_gid_param in turbo_cr and
-# serialize_broadcasting in action_cable_cr produce).
+# globalid-lite (Rails globalid gem): GlobalID.create(record) /
+# GlobalID::Locator.locate(gid_param) build and resolve record gids —
+# urlsafe-b64 of "gid://<app>/<Class>/<id>" (the same shape turbo_cr and
+# serialize_broadcasting in action_cable_cr consume).
 #
 # Deviations from the gem:
-#   * URI-composition helpers (GlobalID.new / to_s / find) are not ported —
-#     only the locate surface the reference app uses.
+#   * `GlobalID.create` returns a `Reference` struct, not a GlobalID
+#     instance (module GlobalID already occupies the name); it carries
+#     to_s/to_param, the only surface the reference app uses.
+#   * `gid_model_name` is a port seam: the gem composes the gid from
+#     `model.class.name`, here records of an STI table are loaded as the
+#     base class, so models override the hook with the record's
+#     type-column class (Room → "Rooms::Open").
 #   * locate(..., only:) loads through the `only:` class when the gid names
 #     an STI descendant of it: the port stores STI type columns in two
 #     spellings ("Rooms::Open" from seeds, "Open" from the port), so a
@@ -14,17 +19,19 @@
 require "base64"
 
 module GlobalID
-  def self.app : String
-    ENV["CRAILS_APP_NAME"]? || "app"
-  end
+  # App segment of gid:// URIs (gem: set once by the railtie; here —
+  # ENV CRAILS_APP_NAME, default "app"; the app assigns it in config).
+  class_property app : String { ENV["CRAILS_APP_NAME"]? || "app" }
 
-  # Parsed gid: model name + id, the app segment is not restricted (the gem
-  # parses any gid; app mismatch only matters for SignedGlobalID).
+  # A gid: app + model name + id. Parsed gids keep the app segment of
+  # the URI, so to_s round-trips.
   struct Reference
+    getter app : String
     getter model_name : String
     getter model_id : Int64
 
-    def initialize(@model_name : String, @model_id : Int64)
+    def initialize(@model_name : String, @model_id : Int64, app : String? = nil)
+      @app = app || GlobalID.app
     end
 
     def self.parse?(gid_param : String) : self?
@@ -35,9 +42,23 @@ module GlobalID
       rescue
         return nil
       end
-      return nil unless match = decoded.match(/\Agid:\/\/[\w-]+\/([\w:]+)\/(\d+)\z/)
-      new(match[1], match[2].to_i64)
+      return nil unless match = decoded.match(/\Agid:\/\/([\w-]+)\/([\w:]+)\/(\d+)\z/)
+      new(match[2], match[3].to_i64, app: match[1])
     end
+
+    def to_s : String
+      "gid://#{@app}/#{@model_name}/#{@model_id}"
+    end
+
+    def to_param : String
+      Base64.urlsafe_encode(to_s, padding: false)
+    end
+  end
+
+  # GlobalID.create(record) → Reference("gid://<app>/<Class>/<id>"); the
+  # record's id must be present (unsaved records raise, as in the gem).
+  def self.create(record : ActiveRecord::Base, app : String? = nil) : Reference
+    Reference.new(record.gid_model_name, record.id.not_nil!, app)
   end
 
   module Locator
@@ -76,6 +97,22 @@ module GlobalID
     def self.__lookup_model(model_name : String) : ActiveRecord::Base.class | Nil
       nil
     end
+  end
+end
+
+# globalid-railtie surface: GlobalID::Identification included into
+# ActiveRecord::Base — to_gid / to_gid_param built through GlobalID.create.
+class ActiveRecord::Base
+  def gid_model_name : String
+    self.class.name
+  end
+
+  def to_gid : GlobalID::Reference
+    GlobalID.create(self)
+  end
+
+  def to_gid_param : String
+    to_gid.to_param
   end
 end
 
