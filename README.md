@@ -52,6 +52,7 @@ crystal run examples/datalake_read.cr
 |---|---|---|---|
 | `establish_connection` (URL / config / database.yml subset), `DATABASE_URL`, unix sockets, `schema_search_path`, connection pool (`pool:` Rails semantics, default 5) | ✅ | Same | ✅ |
 | Attribute codegen `name / name= / name? / name_was / name_changed?` | ✅ | `{{ run }}` from schema.yml | ✅ |
+| Nil-free access to attributes (`msg.id`, `msg.room_id` — Ruby never nil-checks these) | not needed (dynamic typing) | Bang getters `msg.id!`, `msg.room_id!` raise with a `Model#attr is nil` message instead of returning nil (see Deviations) | 🔶 |
 | `table_name=`, `primary_key=` | ✅ | Custom PK lives in `@id` (`w.uid` → `w.id`) | 🔶 |
 | `attribute :x, default:` | ✅ | Applies to new records only (NULL from DB stays nil, oracle-verified); type argument accepted but ignored (types come from the schema) | 🔶 |
 | Runtime attribute methods without recompilation | ✅ | Not possible — equivalent: `crails watch` (rebuild) | ❌ |
@@ -168,6 +169,27 @@ crystal run examples/datalake_read.cr
 
 ## Deviations & Crystal-specific notes
 
+- **Nil-safety bang getters.** Ruby code in the Rails oracle freely chains
+  attribute readers (`boost.booster_id`, `Room.find(message.room_id)`)
+  because nil checks are implicit. Crystal's static typing makes every
+  column getter nilable (`Int64?` — a column can be NULL and an unsaved
+  record has no id yet), so the port forces an explicit nil decision.
+  The stdlib way is `.not_nil!`, but it is anonymous — a raised
+  `NilAssertionError` doesn't say which attribute blew up. Every column
+  therefore gets a bang variant of its getter:
+
+  ```crystal
+  message.id.not_nil!        # works, but the error won't name the field
+  message.id!                # raises "Message#id is nil (unsaved record?)"
+  Room.find?(message.room_id!)   # no .not_nil! chains needed
+  ```
+
+  The bang method returns the non-nil type, so call sites stay as flat
+  as the Rails original; this is a method-call syntax difference, not a
+  semantic one. Generated for every column except keyword-named ones
+  (`until` etc. — their reader isn't callable by name). Note that
+  application-level helpers (`current_user!` in controllers) are the
+  application's own bang methods, not model codegen.
 - No `method_missing`, no runtime Symbols, no `constantize`, static
   typing — these power most ❌ rows above; equivalents are compile-time
   registries and codegen.
