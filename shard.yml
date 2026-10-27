@@ -1,5 +1,5 @@
 name: active_record_cr
-version: 0.1.26
+version: 0.1.27
 crystal: ">= 1.21.0"
 dependencies:
   attr_reader_cr:

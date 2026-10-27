@@ -28,7 +28,9 @@ module ActiveRecord
     attributes
   end
 
-  private def param_to_attribute(value : ActionController::Parameters::Value) : ActiveRecord::Value
+  # A single param value → attribute value (public: assign_attributes'
+  # attachment routing splits file params out before batch conversion).
+  def param_to_attribute(value : ActionController::Parameters::Value) : ActiveRecord::Value
     case value
     when ActionController::Parameters then JSON::Any.new(parameters_to_json(value))
     when Array                        then JSON::Any.new(value.map { |e| scalar_to_json(e) })
@@ -82,6 +84,23 @@ class ActiveRecord::Base
   end
 
   def assign_attributes(values : ActionController::Parameters) : Nil
-    assign_attributes(ActiveRecord.parameters_to_attributes(values))
+    attributes = {} of String => ActiveRecord::Value
+    values.to_h.each do |name, value|
+      # Uploaded files (and the nil of an unselected file field) go through
+      # has_*_attached setters — Rails' record.update!(params) → logo=<file>,
+      # logo=nil no-op (ActiveStorage's setter).
+      if (value.is_a?(ActionController::UploadedFile) || value.nil?) && __assign_attachment(name, value)
+        next
+      end
+      attributes[name] = ActiveRecord.param_to_attribute(value)
+    end
+    assign_attributes(attributes)
+  end
+
+  # Routes attachment params to the has_*_attached macros' setters
+  # (active_storage_cr). Base: the model has no attachments — false sends
+  # the value down the plain attribute path.
+  def __assign_attachment(name : String, value) : Bool
+    false
   end
 end
