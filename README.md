@@ -150,6 +150,7 @@ crystal run examples/datalake_read.cr
 |---|---|---|---|
 | `enum status: [...]` → predicates/bang-methods/scopes | ✅ | Macro `ar_enum` (`enum` is a keyword); getter returns String, unmapped DB values read as nil (8.1, oracle-verified); int and string values (`index_by(&:itself)`) | ✅ |
 | `store / store_accessor` | ✅ | jsonb out of the box, `StoreProxy` container | ✅ |
+| `has_json` (SchematizedJson) | ✅ | Schema-typed accessor over a json/jsonb column (Rails 8.1 `activemodel/schematized_json.rb`): `settings.key?`/`key =`/`key?` per schema key (`:boolean`/`:integer`/`:string` or real default values, reverse-merged on read and before_save); the column setter casts form strings ("true" → true) per key; unknown keys raise ArgumentError (Rails: NoMethodError); nil assignment clears instead of raising (reload shares the path); writes dup the container for dirty tracking; readers cast legacy string values | 🔶 |
 | `serialize` | ✅ | JSON coder only (Rails' YAML default not ported); text column ↔ JSON roundtrip; mutating a read container is not tracked — assign a new one | 🔶 |
 | `alias_attribute` | ✅ | Getter/setter + `where` resolution | ✅ |
 | `accepts_nested_attributes_for` | ✅ | has_many with autosave semantics, `allow_destroy:`, `reject_if: :all_blank`; belongs_to form ⬜; setter is explicit (`model.n_posts_attributes = [...]`) | 🔶 |

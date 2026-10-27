@@ -36,6 +36,15 @@ class Member < ActiveRecord::Base
                          mentions: "mentions", everything: "everything"}
 end
 
+# has_json (ActiveModel::SchematizedJson port) on the same json column:
+# boolean/integer/string keys — real values double as defaults, symbols
+# default to nil (oracle: activemodel schematized_json.rb).
+class Preference < ActiveRecord::Base
+  set_table_name "rooms"
+  has_json :settings, restrict_room_creation_to_administrators: false,
+                      max_invites: :integer, greeting: "Hello!"
+end
+
 # sqlite3 CLI oracle: first column of the first row, or all rows joined.
 module Oracle
   def self.cli(sql : String) : String
@@ -184,6 +193,52 @@ describe "ActiveRecord SQLite adapter (oracle: sqlite3 CLI)" do
       reloaded.settings = JSON::Any.from_json(%({"other":"x"}))
       reloaded.save!
       Room.find(room.id.not_nil!).settings.try(&.["other"].as_s).should eq("x")
+    end
+
+    it "has_json: typed accessors, form-string casting and defaults" do
+      pref = Preference.new(name: "Prefs", kind: "open")
+      # defaults materialize on read (reverse-merge): real values only,
+      # symbol-typed keys stay nil
+      pref.settings.restrict_room_creation_to_administrators?.should be_false
+      pref.settings.max_invites.should be_nil
+      pref.settings.greeting.should eq("Hello!")
+      pref.save!
+      # before_save materialization persists the defaults the CLI can see
+      Oracle.cli("SELECT settings FROM rooms WHERE id = #{pref.id};")
+        .should eq(%({"restrict_room_creation_to_administrators":false,"max_invites":null,"greeting":"Hello!"}))
+
+      # accessor writes cast UI strings to their schema type
+      pref.settings.restrict_room_creation_to_administrators = "true"
+      pref.settings.max_invites = "100"
+      pref.settings.restrict_room_creation_to_administrators?.should be_true
+      pref.settings.max_invites.should eq(100)
+      pref["settings"].as(JSON::Any)["max_invites"].raw.should eq(100_i64)
+      pref.save!
+      reloaded = Preference.find(pref.id.not_nil!)
+      reloaded.settings.restrict_room_creation_to_administrators?.should be_true
+      reloaded.settings.max_invites.should eq(100)
+
+      # update! through the column setter: per-key casting, symbol keys stay nil
+      reloaded.update!({"settings" => JSON::Any.from_json(
+        %({"restrict_room_creation_to_administrators":"false","max_invites":"5"}))})
+      fresh = Preference.find(pref.id.not_nil!)
+      fresh.settings.restrict_room_creation_to_administrators?.should be_false
+      fresh.settings.max_invites.should eq(5)
+      fresh.settings.greeting.should eq("Hello!")
+      # unassigned keys keep their value (Rails merges per key)
+      fresh.update!({"settings" => JSON::Any.from_json(%({"max_invites":"7"}))})
+      Preference.find(pref.id.not_nil!).settings.max_invites.should eq(7)
+
+      # unknown keys raise (Rails: NoMethodError from method_missing)
+      expect_raises(ArgumentError, /undefined has_json key/) do
+        reloaded.update!({"settings" => JSON::Any.from_json(%({"hax":1}))})
+      end
+
+      # legacy string values (written before the port) read as booleans
+      ActiveRecord::Base.connection.exec(
+        %(UPDATE rooms SET settings = '{"restrict_room_creation_to_administrators":"false"}' WHERE id = #{pref.id}))
+      Preference.find(pref.id.not_nil!)
+        .settings.restrict_room_creation_to_administrators?.should be_false
     end
 
     it "updates rows the CLI can see" do

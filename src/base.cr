@@ -73,6 +73,12 @@ module ActiveRecord
   # `store` get a StoreProxy reader instead of the raw JSON::Any.
   STORES = [] of Nil
 
+  # Compile-time has_json registry: {class name, json column}. Models using
+  # `has_json` get a schema-typed accessor reader (SchematizedJson); the
+  # plain column getter/setter are skipped by ar_codegen — row loading goes
+  # through __assign_raw_<col>, user assignment through the casting writer.
+  JSON_SCHEMAS = [] of Nil
+
   # Compile-time serialize registry: {class name, text column, kind} where
   # kind is "any" (JSON::Any reader) or "array" (Array(JSON::Any) + the
   # Rails type.new default). ar_codegen skips the plain column getter for
@@ -107,6 +113,80 @@ module ActiveRecord
 
     def size : Int32
       @hash.size
+    end
+  end
+
+  # Runtime support for `has_json` (SchematizedJson): per-key methods are
+  # generated at compile time from the schema (Crystal has no
+  # method_missing); this base holds the data hash and the write-back
+  # channel. Writes dup the hash — dirty tracking's original-attributes
+  # snapshot shares the underlying hash object, so in-place mutation would
+  # be invisible to changed?.
+  class JsonAccessor
+    def initialize(@data : Hash(String, JSON::Any),
+                   @write_back : Hash(String, JSON::Any) -> Nil)
+    end
+
+    protected def read(key : String) : JSON::Any::Type?
+      @data[key]?.try(&.raw)
+    end
+
+    protected def write(key : String, raw : JSON::Any::Type) : Nil
+      fresh = @data.dup
+      fresh[key] = JSON::Any.new(raw)
+      @data = fresh
+      @write_back.call(fresh)
+    end
+
+    # Rails' Object#present? on a JSON scalar: nil/false, blank strings and
+    # empty containers are not present (0 IS present).
+    protected def present?(key : String) : Bool
+      case read(key)
+      when Nil, false then false
+      when String     then !read(key).as(String).strip.empty?
+      when Hash       then !read(key).as(Hash).empty?
+      when Array      then !read(key).as(Array).empty?
+      else                 true
+      end
+    end
+
+    # ActiveModel::Type casts for the three basic JSON types
+    # SchematizedJson supports (boolean/integer/string). Deviation from
+    # Ruby semantics: integers are Int64/Float64 (no bignum), and the
+    # FALSE_VALUES strings are matched exactly (case-sensitive, like
+    # ActiveModel::Type::Boolean::FALSE_VALUES).
+    def self.cast_boolean(raw : JSON::Any::Type) : Bool?
+      case raw
+      when Bool     then raw
+      when Int64    then raw != 0
+      when Float64  then raw != 0
+      when String
+        case raw
+        when ""                             then nil
+        when "0", "f", "false", "off", "no" then false
+        else                                     true
+        end
+      when Nil      then nil
+      else               true # Rails: !!value
+      end
+    end
+
+    def self.cast_integer(raw : JSON::Any::Type) : Int64?
+      case raw
+      when Int64   then raw
+      when Bool    then raw ? 1_i64 : 0_i64
+      when Float64 then raw.to_i64
+      when String  then raw.empty? ? nil : (raw.to_i64? || 0_i64)
+      else              nil
+      end
+    end
+
+    def self.cast_string(raw : JSON::Any::Type) : String?
+      case raw
+      when Nil    then nil
+      when String then raw
+      else             raw.to_s
+      end
     end
   end
 
@@ -318,6 +398,139 @@ module ActiveRecord
       def {{attr_name.id}} : ::ActiveRecord::StoreProxy?
         @{{attr_name.id}}.try { |v| ::ActiveRecord::StoreProxy.new(v.as_h) }
       end
+    end
+
+    # has_json :settings, key: false / key: :boolean — Rails 8.1
+    # ActiveModel::SchematizedJson (activemodel/lib/active_model/
+    # schematized_json.rb): a schema-typed accessor over a json/jsonb
+    # column. Schema keys become accessor methods on the container —
+    # `account.settings.restrict_room_creation_to_administrators?`,
+    # `account.settings.max_invites = "100"` (Rails resolves these through
+    # method_missing, the port generates them at compile time). Values
+    # written through the accessor or the column setter (`update!(settings:
+    # {...})` reaches it via assign_attributes) are cast to their schema
+    # type, so UI strings ("true") land as JSON booleans. Real default
+    # values (false/5/"hi") are reverse-merged on read and before_save;
+    # symbol types (:boolean/:integer/:string) default to nil.
+    #
+    # Deviations: unknown keys in an assigned hash raise ArgumentError
+    # (Rails: NoMethodError from method_missing); assigning nil clears the
+    # attribute instead of raising (reload needs it — it shares
+    # assign_attributes, while Rails' reload bypasses the setter); writes
+    # dup the container (see JsonAccessor); readers also cast legacy
+    # string values stored before the port, and boolean `key?` is
+    # `cast == true` rather than present? (a legacy "false" string is
+    # present, but must read as false).
+    macro has_json(attr_name, **schema)
+      {% ActiveRecord::JSON_SCHEMAS << {@type.name.stringify, attr_name.id.stringify} %}
+      {% klass = (attr_name.id.stringify.camelcase.id + "JsonAccessor").id %}
+
+      class {{klass.id}} < ::ActiveRecord::JsonAccessor
+        def initialize(data : Hash(String, JSON::Any),
+                       @write_back : Hash(String, JSON::Any) -> Nil)
+          @data = data
+        end
+
+        # settings = {key: value, ...} — Rails assign_data_with_type_casting
+        # (public_send per key): schema keys cast, unknown keys raise.
+        def __assign(key : String, value : JSON::Any) : Nil
+          case key
+          {% for k, v in schema %}
+          when {{k.id.stringify}} then
+            # Array/Hash containers ride the JSON::Any overload (the cast
+            # functions decide what they mean); scalars unwrap first.
+            # NB: `self.` is required — a bare `key = v` is a local
+            # variable assignment in Crystal, not a setter call.
+            if (r = value.raw).is_a?(Bool | Int64 | Float64 | String | Nil)
+              self.{{k.id}} = r
+            else
+              self.{{k.id}} = value
+            end
+          {% end %}
+          else
+            raise ArgumentError.new(
+              "undefined has_json key '#{key}' for {{attr_name}} of {{@type}}")
+          end
+        end
+
+        {% for k, v in schema %}
+          {% if v.is_a?(SymbolLiteral) %}
+            {% kind = v.id.stringify %}
+            {% unless ["boolean", "integer", "string"].includes?(kind) %}
+              {% raise "has_json #{attr_name}: #{k} — only :boolean/:integer/:string types are allowed (got :#{kind.id})" %}
+            {% end %}
+          {% elsif v.is_a?(BoolLiteral) %}
+            {% kind = "boolean" %}
+          {% elsif v.is_a?(NumberLiteral) %}
+            {% kind = "integer" %}
+          {% elsif v.is_a?(StringLiteral) %}
+            {% kind = "string" %}
+          {% else %}
+            {% raise "has_json #{attr_name}: #{k} — only :boolean/:integer/:string symbols or real boolean/integer/string defaults are allowed (got #{v})" %}
+          {% end %}
+          {% ret = (kind == "boolean" ? "Bool?" : kind == "integer" ? "Int64?" : "String?").id %}
+          {% prim = (kind == "boolean" ? "Bool" : kind == "integer" ? "Int64" : "String").id %}
+
+          def {{k.id}} : {{ret.id}}
+            case raw = read({{k.id.stringify}})
+            when Nil then nil
+            when {{prim.id}} then raw
+            else
+              ::ActiveRecord::JsonAccessor.cast_{{kind.id}}(raw).as({{ret.id}})
+            end
+          end
+
+          def {{k.id}}? : Bool
+            {% if kind == "boolean" %}
+              {{k.id}} == true
+            {% else %}
+              present?({{k.id.stringify}})
+            {% end %}
+          end
+
+          def {{k.id}}=(value : Bool | Int64 | Float64 | String | JSON::Any | Nil) : Nil
+            raw = value.is_a?(JSON::Any) ? value.raw : value
+            write({{k.id.stringify}}, ::ActiveRecord::JsonAccessor.cast_{{kind.id}}(raw).as(JSON::Any::Type))
+          end
+        {% end %}
+      end
+
+      # Reader: materialize nil → {} (Rails _write_attribute(attr, {})),
+      # reverse-merge schema defaults, hand the accessor a write-back
+      # channel into the attribute ivar.
+      def {{attr_name.id}} : {{klass.id}}
+        if @{{attr_name.id}}.nil?
+          @{{attr_name.id}} = JSON::Any.new({} of String => JSON::Any)
+        end
+        data = @{{attr_name.id}}.not_nil!.as_h
+        {% for k, v in schema %}
+          unless data.has_key?({{k.id.stringify}})
+            data = data.dup
+            data[{{k.id.stringify}}] = JSON::Any.new({{v.is_a?(SymbolLiteral) ? "nil".id : v}})
+          end
+        {% end %}
+        @{{attr_name.id}} = JSON::Any.new(data)
+        {{klass.id}}.new(data, ->(h : Hash(String, JSON::Any)) {
+          @{{attr_name.id}} = JSON::Any.new(h)
+          nil
+        })
+      end
+
+      # Rails settings=: reader materializes the attribute (defaults
+      # included), then every assigned key goes through the typed setter.
+      def {{attr_name.id}}=(value : JSON::Any | Hash(String, JSON::Any)) : Nil
+        accessor = self.{{attr_name.id}}
+        hash = value.is_a?(JSON::Any) ? value.as_h : value
+        hash.each { |k, v| accessor.__assign(k, v) }
+      end
+
+      def {{attr_name.id}}=(value : Nil) : Nil
+        @{{attr_name.id}} = nil
+      end
+
+      # Defaults are materialized before saving — Rails'
+      # `before_save -> { send(attr) }`.
+      before_save { self.{{attr_name.id}} }
     end
 
     # serialize :settings, coder: :json — text column ↔ JSON roundtrip.
@@ -575,6 +788,10 @@ module ActiveRecord
         {% for s in ActiveRecord::STORES %}
           {% if s[0] == @type.name.stringify && s[1] == c[0] %}{% store_col = true %}{% end %}
         {% end %}
+        {% json_col = false %}
+        {% for s in ActiveRecord::JSON_SCHEMAS %}
+          {% if s[0] == @type.name.stringify && s[1] == c[0] %}{% json_col = true %}{% end %}
+        {% end %}
         {% ser_col = false %}
         {% for s in ActiveRecord::SERIALIZERS %}
           {% if s[0] == @type.name.stringify && s[1] == c[0] %}{% ser_col = true %}{% end %}
@@ -593,6 +810,12 @@ module ActiveRecord
         {% elsif store_col %}
           def {{c[0].id}} : ::ActiveRecord::StoreProxy?
             @{{c[0].id}}.try { |v| ::ActiveRecord::StoreProxy.new(v.as_h) }
+          end
+        {% elsif json_col %}
+          # has_json reader generated by the has_json macro; row loading
+          # assigns raw (the plain setter is the schema-casting writer)
+          def __assign_raw_{{c[0].id}}(value : JSON::Any?) : Nil
+            @{{c[0].id}} = value
           end
         {% elsif ser_col %}
           # serialize reader generated by the `serialize` macro (base.cr)
@@ -633,7 +856,7 @@ module ActiveRecord
           end
         {% end %}
 
-        {% unless enc_opts %}
+        {% unless enc_opts || json_col %}
           def {{c[0].id}}=(value : {{c[1].id}}?)
             @{{c[0].id}} = value
           end
@@ -717,8 +940,13 @@ module ActiveRecord
                 {% enum_init = (e[2].is_a?(ArrayLiteral) ? e[2].map { |tup| tup[1] }.first : e[2].values.first).is_a?(StringLiteral) %}
               {% end %}
             {% end %}
-            # encrypted columns go through the encrypting setter
-            {% if enc_init || enum_init || c[3] %}
+            # has_json columns go through the schema-casting writer
+            {% json_init = false %}
+            {% for s in ActiveRecord::JSON_SCHEMAS %}
+              {% if s[0] == @type.name.stringify && s[1] == c[0] %}{% json_init = true %}{% end %}
+            {% end %}
+            # encrypted/enum/json-schema columns go through their setters
+            {% if enc_init || enum_init || json_init || c[3] %}
               if (ev = {{c[0].id}})
                 self.{{c[0].id}} = ev
               else
@@ -765,9 +993,20 @@ module ActiveRecord
                   record.__assign_raw_{{c[0].id}}(rs.read({{c[1].id}}?))
                 {% elsif c[1] == "JSON::Any" %}
                   # json/jsonb columns: pg decodes to JSON::Any natively,
-                  # SQLite returns TEXT — normalize both (a NULL stays nil)
-                  record.{{c[0].id}} = rs.read(String | JSON::Any | Nil)
-                    .try { |v| v.as?(JSON::Any) || JSON::Any.from_json(v.to_s) }
+                  # SQLite returns TEXT — normalize both (a NULL stays nil).
+                  # has_json columns load raw — their plain setter is the
+                  # schema-casting writer.
+                  {% json_read = false %}
+                  {% for s in ActiveRecord::JSON_SCHEMAS %}
+                    {% if s[0] == @type.name.stringify && s[1] == c[0] %}{% json_read = true %}{% end %}
+                  {% end %}
+                  {% if json_read %}
+                    record.__assign_raw_{{c[0].id}}(rs.read(String | JSON::Any | Nil)
+                      .try { |v| v.as?(JSON::Any) || JSON::Any.from_json(v.to_s) })
+                  {% else %}
+                    record.{{c[0].id}} = rs.read(String | JSON::Any | Nil)
+                      .try { |v| v.as?(JSON::Any) || JSON::Any.from_json(v.to_s) }
+                  {% end %}
                 {% else %}
                   record.{{c[0].id}} = rs.read({{c[1].id}}?)
                 {% end %}
@@ -852,8 +1091,16 @@ module ActiveRecord
               {% if e[0] == @type.name.stringify && e[1] == c[0] %}{% enum_assign = true %}{% end %}
             {% end %}
             # encrypted columns go through the encrypting setter
+            {% json_assign = false %}
+            {% for s in ActiveRecord::JSON_SCHEMAS %}
+              {% if s[0] == @type.name.stringify && s[1] == c[0] %}{% json_assign = true %}{% end %}
+            {% end %}
             {% if enc_assign %}
             when {{c[0]}} then self.{{c[0].id}} = value.as?(String)
+            {% elsif json_assign %}
+            # has_json columns: the public setter casts each key to its
+            # schema type (Rails routes through public_send("col=", v))
+            when {{c[0]}} then self.{{c[0].id}} = value.as?(JSON::Any)
             {% elsif enum_assign %}
             when {{c[0]}} then
               if (ev = value.as?(String))
